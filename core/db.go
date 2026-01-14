@@ -95,18 +95,26 @@ func (db *DB) Raw(sql string, args ...any) *Query {
 	return q.Raw(sql, args...)
 }
 
+// logSQL logs the SQL execution if a logger is set.
+func (db *DB) logSQL(sql string, duration time.Duration, args ...any) {
+	if db.logger != nil {
+		db.logger.SQL(sql, duration, args...)
+	}
+}
+
 // Exec executes a raw SQL statement without returning any rows.
 func (db *DB) Exec(sql string, args ...any) (sql.Result, error) {
 	start := time.Now()
 	res, err := db.pool.ExecContext(context.Background(), sql, args...)
-	db.logger.SQL(sql, time.Since(start), args...)
+	db.logSQL(sql, time.Since(start), args...)
 	return res, err
 }
 
-// Transaction executes the given function within a database transaction.
-// It automatically commits if the function returns nil, and rolls back otherwise.
+// Transaction executes a function within a database transaction.
 func (db *DB) Transaction(fn func(tx *Tx) error) error {
+	start := time.Now()
 	sqlTx, err := db.pool.Begin()
+	db.logSQL("BEGIN", time.Since(start))
 	if err != nil {
 		return err
 	}
@@ -118,20 +126,26 @@ func (db *DB) Transaction(fn func(tx *Tx) error) error {
 
 	defer func() {
 		if p := recover(); p != nil {
+			start := time.Now()
 			_ = sqlTx.Rollback()
+			db.logSQL("ROLLBACK", time.Since(start))
 			panic(p)
+		} else if err != nil {
+			start := time.Now()
+			_ = sqlTx.Rollback()
+			db.logSQL("ROLLBACK", time.Since(start))
+		} else {
+			start := time.Now()
+			err = sqlTx.Commit()
+			db.logSQL("COMMIT", time.Since(start))
 		}
 	}()
 
-	if err := fn(tx); err != nil {
-		_ = sqlTx.Rollback()
-		return err
-	}
-
-	return sqlTx.Commit()
+	err = fn(tx)
+	return err
 }
 
-// AutoMigrate automatically creates tables based on the given model instances.
+// AutoMigrate creates the table for the given model if it doesn't exist.
 func (db *DB) AutoMigrate(values ...any) error {
 	for _, value := range values {
 		m, err := model.GetModel(value)
@@ -152,7 +166,7 @@ func (db *DB) AutoMigrate(values ...any) error {
 			createSQL, createArgs := db.dialect.CreateTableSQL(m)
 			start := time.Now()
 			_, err = db.pool.ExecContext(context.Background(), createSQL, createArgs...)
-			db.logger.SQL(createSQL, time.Since(start), createArgs...)
+			db.logSQL(createSQL, time.Since(start), createArgs...)
 			if err != nil {
 				return err
 			}

@@ -137,7 +137,7 @@ func (q *Query) Count() (int64, error) {
 	var count int64
 	start := time.Now()
 	err := q.executor.QueryRowContext(q.ctx, sqlStr, args...).Scan(&count)
-	q.db.logger.SQL(sqlStr, time.Since(start), args...)
+	q.db.logSQL(sqlStr, time.Since(start), args...)
 	return count, err
 }
 
@@ -152,7 +152,7 @@ func (q *Query) Scan(dest any) error {
 func (q *Query) queryRow(sqlStr string, args []any, dest any) error {
 	start := time.Now()
 	rows, err := q.executor.QueryContext(q.ctx, sqlStr, args...)
-	q.db.logger.SQL(sqlStr, time.Since(start), args...)
+	q.db.logSQL(sqlStr, time.Since(start), args...)
 	if err != nil {
 		return err
 	}
@@ -176,7 +176,7 @@ func (q *Query) queryRow(sqlStr string, args []any, dest any) error {
 func (q *Query) queryRows(sqlStr string, args []any, dest any) error {
 	start := time.Now()
 	rows, err := q.executor.QueryContext(q.ctx, sqlStr, args...)
-	q.db.logger.SQL(sqlStr, time.Since(start), args...)
+	q.db.logSQL(sqlStr, time.Since(start), args...)
 	if err != nil {
 		return err
 	}
@@ -285,7 +285,7 @@ func (q *Query) Insert(value any) (int64, error) {
 	sqlStr, _ := q.builder.BuildInsert(columns)
 	start := time.Now()
 	res, err := q.executor.ExecContext(q.ctx, sqlStr, args...)
-	q.db.logger.SQL(sqlStr, time.Since(start), args...)
+	q.db.logSQL(sqlStr, time.Since(start), args...)
 	if err != nil {
 		return 0, err
 	}
@@ -367,7 +367,7 @@ func (q *Query) BatchInsert(values any) (int64, error) {
 
 	start := time.Now()
 	res, err := q.executor.ExecContext(q.ctx, sqlStr, args...)
-	q.db.logger.SQL(sqlStr, time.Since(start), args...)
+	q.db.logSQL(sqlStr, time.Since(start), args...)
 	if err != nil {
 		return 0, err
 	}
@@ -434,7 +434,7 @@ func (q *Query) Update(value any) (int64, error) {
 	sqlStr, args := q.builder.BuildUpdate(data)
 	start := time.Now()
 	res, err := q.executor.ExecContext(q.ctx, sqlStr, args...)
-	q.db.logger.SQL(sqlStr, time.Since(start), args...)
+	q.db.logSQL(sqlStr, time.Since(start), args...)
 	if err != nil {
 		return 0, err
 	}
@@ -464,7 +464,7 @@ func (q *Query) Delete() (int64, error) {
 	sqlStr, args := q.builder.BuildDelete()
 	start := time.Now()
 	res, err := q.executor.ExecContext(q.ctx, sqlStr, args...)
-	q.db.logger.SQL(sqlStr, time.Since(start), args...)
+	q.db.logSQL(sqlStr, time.Since(start), args...)
 	if err != nil {
 		return 0, err
 	}
