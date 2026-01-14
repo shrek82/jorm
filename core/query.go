@@ -106,6 +106,7 @@ func (q *Query) Raw(sql string, args ...any) *Query {
 
 // First retrieves the first record matching the query into dest.
 func (q *Query) First(dest any) error {
+	defer PutBuilder(q.builder)
 	if q.err != nil {
 		return q.err
 	}
@@ -116,6 +117,7 @@ func (q *Query) First(dest any) error {
 
 // Find retrieves all records matching the query into dest (must be a pointer to a slice).
 func (q *Query) Find(dest any) error {
+	defer PutBuilder(q.builder)
 	if q.err != nil {
 		return q.err
 	}
@@ -125,6 +127,7 @@ func (q *Query) Find(dest any) error {
 
 // Count returns the number of records matching the query.
 func (q *Query) Count() (int64, error) {
+	defer PutBuilder(q.builder)
 	if q.err != nil {
 		return 0, q.err
 	}
@@ -234,7 +237,7 @@ func (q *Query) scanRow(rows *sql.Rows, dest any) error {
 	destValue := reflect.ValueOf(dest).Elem()
 	for i, col := range columns {
 		if field, ok := m.FieldMap[col]; ok {
-			destValue.FieldByName(field.Name).Set(reflect.ValueOf(values[i]).Elem())
+			destValue.Field(field.Index).Set(reflect.ValueOf(values[i]).Elem())
 		}
 	}
 
@@ -243,6 +246,7 @@ func (q *Query) scanRow(rows *sql.Rows, dest any) error {
 
 // Insert inserts a new record into the database.
 func (q *Query) Insert(value any) (int64, error) {
+	defer PutBuilder(q.builder)
 	if q.err != nil {
 		return 0, q.err
 	}
@@ -270,7 +274,7 @@ func (q *Query) Insert(value any) (int64, error) {
 		if field.IsAuto {
 			continue
 		}
-		fVal := val.FieldByName(field.Name)
+		fVal := val.Field(field.Index)
 		if (field.AutoTime || field.AutoUpdate) && fVal.CanSet() {
 			fVal.Set(reflect.ValueOf(now))
 		}
@@ -304,6 +308,7 @@ func (q *Query) Insert(value any) (int64, error) {
 // BatchInsert inserts multiple records into the database.
 // values must be a slice of structs or pointers to structs.
 func (q *Query) BatchInsert(values any) (int64, error) {
+	defer PutBuilder(q.builder)
 	if q.err != nil {
 		return 0, q.err
 	}
@@ -330,8 +335,9 @@ func (q *Query) BatchInsert(values any) (int64, error) {
 		}
 	}
 
-	sqlStr, _ := q.builder.BuildInsert(columns)
-	var totalAffected int64
+	sqlStr, _ := q.db.dialect.BatchInsertSQL(m.TableName, columns, sliceVal.Len())
+	var args []any
+	now := time.Now()
 
 	for i := 0; i < sliceVal.Len(); i++ {
 		item := sliceVal.Index(i).Interface()
@@ -343,36 +349,39 @@ func (q *Query) BatchInsert(values any) (int64, error) {
 		// Hooks
 		if h, ok := item.(BeforeInserter); ok {
 			if err := h.BeforeInsert(); err != nil {
-				return totalAffected, err
+				return 0, err
 			}
 		}
 
-		var args []any
-		now := time.Now()
 		for _, field := range m.Fields {
 			if field.IsAuto {
 				continue
 			}
-			fVal := val.FieldByName(field.Name)
+			fVal := val.Field(field.Index)
 			if (field.AutoTime || field.AutoUpdate) && fVal.CanSet() {
 				fVal.Set(reflect.ValueOf(now))
 			}
 			args = append(args, fVal.Interface())
 		}
+	}
 
-		start := time.Now()
-		res, err := q.executor.ExecContext(q.ctx, sqlStr, args...)
-		q.db.logger.SQL(sqlStr, time.Since(start), args...)
-		if err != nil {
-			return totalAffected, err
-		}
+	start := time.Now()
+	res, err := q.executor.ExecContext(q.ctx, sqlStr, args...)
+	q.db.logger.SQL(sqlStr, time.Since(start), args...)
+	if err != nil {
+		return 0, err
+	}
 
-		affected, _ := res.RowsAffected()
-		totalAffected += affected
+	totalAffected, _ := res.RowsAffected()
 
+	// AfterInsert hooks (Batch)
+	for i := 0; i < sliceVal.Len(); i++ {
+		item := sliceVal.Index(i).Interface()
 		if h, ok := item.(AfterInserter); ok {
+			// Note: LastInsertId in batch mode is driver-dependent
+			// Usually returns the first ID of the batch
 			id, _ := res.LastInsertId()
-			if err := h.AfterInsert(id); err != nil {
+			if err := h.AfterInsert(id + int64(i)); err != nil {
 				return totalAffected, err
 			}
 		}
@@ -384,6 +393,7 @@ func (q *Query) BatchInsert(values any) (int64, error) {
 // Update updates records matching the query.
 // value can be a map[string]any or a struct.
 func (q *Query) Update(value any) (int64, error) {
+	defer PutBuilder(q.builder)
 	if q.err != nil {
 		return 0, q.err
 	}
@@ -412,7 +422,7 @@ func (q *Query) Update(value any) (int64, error) {
 		now := time.Now()
 		for _, field := range m.Fields {
 			if !field.IsPK && !field.IsAuto {
-				fVal := val.FieldByName(field.Name)
+				fVal := val.Field(field.Index)
 				if field.AutoUpdate && fVal.CanSet() {
 					fVal.Set(reflect.ValueOf(now))
 				}
@@ -446,6 +456,7 @@ func (q *Query) Update(value any) (int64, error) {
 
 // Delete deletes records matching the query.
 func (q *Query) Delete() (int64, error) {
+	defer PutBuilder(q.builder)
 	if q.err != nil {
 		return 0, q.err
 	}

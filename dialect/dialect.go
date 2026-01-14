@@ -19,6 +19,8 @@ type Dialect interface {
 	CreateTableSQL(m *model.Model) (string, []any)
 	// HasTableSQL generates the SQL to check if a table exists
 	HasTableSQL(tableName string) (string, []any)
+	// BatchInsertSQL generates a single SQL statement for multiple rows
+	BatchInsertSQL(table string, columns []string, count int) (string, []any)
 }
 
 var dialects = make(map[string]Dialect)

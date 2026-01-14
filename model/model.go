@@ -70,6 +70,7 @@ func parseModel(typ reflect.Type) (*Model, error) {
 			Name:       structField.Name,
 			Column:     columnName,
 			Type:       structField.Type,
+			Index:      i,
 			IsPK:       tag.PrimaryKey,
 			IsAuto:     tag.AutoInc,
 			AutoTime:   tag.AutoTime,

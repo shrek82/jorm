@@ -2,6 +2,7 @@ package core
 
 import (
 	"strings"
+	"sync"
 
 	"github.com/shrek82/jorm/dialect"
 	"github.com/shrek82/jorm/query"
@@ -29,12 +30,24 @@ type sqlBuilder struct {
 	clauses map[query.ClauseType]*query.Clause
 }
 
+var builderPool = sync.Pool{
+	New: func() any {
+		return &sqlBuilder{
+			clauses: make(map[query.ClauseType]*query.Clause),
+		}
+	},
+}
+
 // NewBuilder creates a new sqlBuilder instance with the given dialect.
 func NewBuilder(d dialect.Dialect) Builder {
-	return &sqlBuilder{
-		dialect: d,
-		clauses: make(map[query.ClauseType]*query.Clause),
+	b := builderPool.Get().(*sqlBuilder)
+	b.dialect = d
+	// Reset builder
+	b.table = ""
+	for k := range b.clauses {
+		delete(b.clauses, k)
 	}
+	return b
 }
 
 // SetTable sets the table name for the current SQL statement.
@@ -101,6 +114,13 @@ func (b *sqlBuilder) BuildSelect() (string, []any) {
 	}
 
 	return strings.Join(sqls, " "), args
+}
+
+// PutBuilder returns a sqlBuilder to the pool for reuse.
+func PutBuilder(b Builder) {
+	if sb, ok := b.(*sqlBuilder); ok {
+		builderPool.Put(sb)
+	}
 }
 
 // BuildInsert generates the INSERT SQL statement.

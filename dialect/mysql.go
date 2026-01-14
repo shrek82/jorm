@@ -71,3 +71,21 @@ func (d *mysql) CreateTableSQL(m *model.Model) (string, []any) {
 func (d *mysql) HasTableSQL(tableName string) (string, []any) {
 	return "SELECT count(*) FROM information_schema.tables WHERE table_name = ?", []any{tableName}
 }
+
+func (d *mysql) BatchInsertSQL(table string, columns []string, count int) (string, []any) {
+	var rowPlaceholders []string
+	for i := 0; i < count; i++ {
+		var placeholders []string
+		for range columns {
+			placeholders = append(placeholders, "?")
+		}
+		rowPlaceholders = append(rowPlaceholders, "("+strings.Join(placeholders, ", ")+")")
+	}
+
+	sql := fmt.Sprintf("INSERT INTO %s (%s) VALUES %s",
+		d.Quote(table),
+		strings.Join(columns, ", "),
+		strings.Join(rowPlaceholders, ", "),
+	)
+	return sql, nil
+}

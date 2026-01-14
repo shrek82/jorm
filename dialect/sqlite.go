@@ -70,3 +70,21 @@ func (d *sqlite3) CreateTableSQL(m *model.Model) (string, []any) {
 func (d *sqlite3) HasTableSQL(tableName string) (string, []any) {
 	return "SELECT count(*) FROM sqlite_master WHERE type='table' AND name = ?", []any{tableName}
 }
+
+func (d *sqlite3) BatchInsertSQL(table string, columns []string, count int) (string, []any) {
+	var rowPlaceholders []string
+	for i := 0; i < count; i++ {
+		var placeholders []string
+		for range columns {
+			placeholders = append(placeholders, "?")
+		}
+		rowPlaceholders = append(rowPlaceholders, "("+strings.Join(placeholders, ", ")+")")
+	}
+
+	sql := fmt.Sprintf("INSERT INTO %s (%s) VALUES %s",
+		d.Quote(table),
+		strings.Join(columns, ", "),
+		strings.Join(rowPlaceholders, ", "),
+	)
+	return sql, nil
+}
