@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"fmt"
 	"reflect"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/shrek82/jorm/model"
@@ -28,6 +30,40 @@ type Query struct {
 	err      error
 	rawSQL   string
 	rawArgs  []any
+}
+
+type scanPlan struct {
+	fields []*model.Field
+}
+
+type scanPlanKey struct {
+	model *model.Model
+	cols  string
+}
+
+var scanPlanCache sync.Map
+
+func getScanPlan(m *model.Model, columns []string) *scanPlan {
+	key := scanPlanKey{
+		model: m,
+		cols:  strings.Join(columns, ","),
+	}
+	if v, ok := scanPlanCache.Load(key); ok {
+		return v.(*scanPlan)
+	}
+
+	fields := make([]*model.Field, len(columns))
+	for i, col := range columns {
+		if field, ok := m.FieldMap[col]; ok {
+			fields[i] = field
+		}
+	}
+
+	plan := &scanPlan{
+		fields: fields,
+	}
+	scanPlanCache.Store(key, plan)
+	return plan
 }
 
 // NewQuery creates a new Query instance.
@@ -71,6 +107,16 @@ func (q *Query) Select(columns ...string) *Query {
 // Where adds a WHERE clause to the query.
 func (q *Query) Where(cond string, args ...any) *Query {
 	q.builder.Where(cond, args...)
+	return q
+}
+
+func (q *Query) OrWhere(cond string, args ...any) *Query {
+	q.builder.OrWhere(cond, args...)
+	return q
+}
+
+func (q *Query) WhereIn(column string, values any) *Query {
+	q.builder.WhereIn(column, values)
 	return q
 }
 
@@ -248,9 +294,11 @@ func (q *Query) scanRow(rows *sql.Rows, dest any) error {
 		return err
 	}
 
+	plan := getScanPlan(m, columns)
+
 	values := make([]any, len(columns))
-	for i, col := range columns {
-		if field, ok := m.FieldMap[col]; ok {
+	for i, field := range plan.fields {
+		if field != nil {
 			values[i] = reflect.New(field.Type).Interface()
 		} else {
 			var ignore any
@@ -263,8 +311,8 @@ func (q *Query) scanRow(rows *sql.Rows, dest any) error {
 	}
 
 	destValue := reflect.ValueOf(dest).Elem()
-	for i, col := range columns {
-		if field, ok := m.FieldMap[col]; ok {
+	for i, field := range plan.fields {
+		if field != nil {
 			destValue.Field(field.Index).Set(reflect.ValueOf(values[i]).Elem())
 		}
 	}

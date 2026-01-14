@@ -7,4 +7,3 @@ type AfterUpdater interface{ AfterUpdate() error }
 type BeforeDeleter interface{ BeforeDelete() error }
 type AfterDeleter interface{ AfterDelete() error }
 type AfterFinder interface{ AfterFind() error }
-

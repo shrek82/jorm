@@ -1,11 +1,11 @@
 package core
 
 import (
+	"reflect"
 	"strings"
 	"sync"
 
 	"github.com/shrek82/jorm/dialect"
-	"github.com/shrek82/jorm/query"
 )
 
 // Builder defines the interface for building SQL statements.
@@ -15,6 +15,8 @@ type Builder interface {
 	Alias(alias string) Builder
 	Select(columns ...string) Builder
 	Where(cond string, args ...any) Builder
+	OrWhere(cond string, args ...any) Builder
+	WhereIn(column string, values any) Builder
 	Join(table, joinType, on string) Builder
 	OrderBy(columns ...string) Builder
 	Limit(n int) Builder
@@ -27,17 +29,23 @@ type Builder interface {
 
 // sqlBuilder is the default implementation of the Builder interface.
 type sqlBuilder struct {
-	dialect dialect.Dialect
-	table   string
-	alias   string
-	clauses map[query.ClauseType]*query.Clause
+	dialect    dialect.Dialect
+	table      string
+	alias      string
+	selectCols []string
+	whereExpr  string
+	whereArgs  []any
+	joins      []string
+	orderBy    []string
+	limitSet   bool
+	limit      int
+	offsetSet  bool
+	offset     int
 }
 
 var builderPool = sync.Pool{
 	New: func() any {
-		return &sqlBuilder{
-			clauses: make(map[query.ClauseType]*query.Clause),
-		}
+		return &sqlBuilder{}
 	},
 }
 
@@ -45,12 +53,17 @@ var builderPool = sync.Pool{
 func NewBuilder(d dialect.Dialect) Builder {
 	b := builderPool.Get().(*sqlBuilder)
 	b.dialect = d
-	// Reset builder
 	b.table = ""
 	b.alias = ""
-	for k := range b.clauses {
-		delete(b.clauses, k)
-	}
+	b.selectCols = b.selectCols[:0]
+	b.whereExpr = ""
+	b.whereArgs = b.whereArgs[:0]
+	b.joins = b.joins[:0]
+	b.orderBy = b.orderBy[:0]
+	b.limitSet = false
+	b.limit = 0
+	b.offsetSet = false
+	b.offset = 0
 	return b
 }
 
@@ -67,36 +80,57 @@ func (b *sqlBuilder) Alias(alias string) Builder {
 
 // Select adds the SELECT clause with specified columns.
 func (b *sqlBuilder) Select(columns ...string) Builder {
-	if c, ok := b.clauses[query.SELECT]; ok {
-		existing := c.Value[0].([]string)
-		existing = append(existing, columns...)
-		c.Value[0] = existing
-	} else {
-		b.clauses[query.SELECT] = &query.Clause{Type: query.SELECT, Value: []any{columns}}
-	}
+	b.selectCols = append(b.selectCols, columns...)
 	return b
 }
 
 // Where adds the WHERE clause with condition and arguments.
 func (b *sqlBuilder) Where(cond string, args ...any) Builder {
-	if c, ok := b.clauses[query.WHERE]; ok {
-		conds := c.Value[0].([]string)
-		conds = append(conds, cond)
-		c.Value[0] = conds
-
-		existingArgs := c.Value[1].([]any)
-		existingArgs = append(existingArgs, args...)
-		c.Value[1] = existingArgs
-	} else {
-		b.clauses[query.WHERE] = &query.Clause{
-			Type: query.WHERE,
-			Value: []any{
-				[]string{cond},
-				append([]any{}, args...),
-			},
-		}
+	if cond == "" {
+		return b
 	}
+	if b.whereExpr == "" {
+		b.whereExpr = "(" + cond + ")"
+	} else {
+		b.whereExpr = b.whereExpr + " AND (" + cond + ")"
+	}
+	b.whereArgs = append(b.whereArgs, args...)
 	return b
+}
+
+func (b *sqlBuilder) OrWhere(cond string, args ...any) Builder {
+	if cond == "" {
+		return b
+	}
+	if b.whereExpr == "" {
+		b.whereExpr = "(" + cond + ")"
+	} else {
+		b.whereExpr = b.whereExpr + " OR (" + cond + ")"
+	}
+	b.whereArgs = append(b.whereArgs, args...)
+	return b
+}
+
+func (b *sqlBuilder) WhereIn(column string, values any) Builder {
+	v := reflect.ValueOf(values)
+	if !v.IsValid() {
+		return b
+	}
+	kind := v.Kind()
+	if kind != reflect.Slice && kind != reflect.Array {
+		return b.Where(column+" IN (?)", values)
+	}
+	if v.Len() == 0 {
+		return b.Where("1 = 0")
+	}
+	placeholders := make([]string, v.Len())
+	args := make([]any, 0, v.Len())
+	for i := 0; i < v.Len(); i++ {
+		placeholders[i] = "?"
+		args = append(args, v.Index(i).Interface())
+	}
+	cond := column + " IN (" + strings.Join(placeholders, ", ") + ")"
+	return b.Where(cond, args...)
 }
 
 func (b *sqlBuilder) Join(table, joinType, on string) Builder {
@@ -106,31 +140,27 @@ func (b *sqlBuilder) Join(table, joinType, on string) Builder {
 	}
 	quotedTable := b.dialect.Quote(table)
 	clause := jt + " JOIN " + quotedTable + " ON " + on
-	if c, ok := b.clauses[query.JOIN]; ok {
-		joins := c.Value[0].([]string)
-		joins = append(joins, clause)
-		c.Value[0] = joins
-	} else {
-		b.clauses[query.JOIN] = &query.Clause{Type: query.JOIN, Value: []any{[]string{clause}}}
-	}
+	b.joins = append(b.joins, clause)
 	return b
 }
 
 // OrderBy adds the ORDER BY clause.
 func (b *sqlBuilder) OrderBy(columns ...string) Builder {
-	b.clauses[query.ORDERBY] = &query.Clause{Type: query.ORDERBY, Value: []any{columns}}
+	b.orderBy = append(b.orderBy, columns...)
 	return b
 }
 
 // Limit adds the LIMIT clause.
 func (b *sqlBuilder) Limit(n int) Builder {
-	b.clauses[query.LIMIT] = &query.Clause{Type: query.LIMIT, Value: []any{n}}
+	b.limitSet = true
+	b.limit = n
 	return b
 }
 
 // Offset adds the OFFSET clause.
 func (b *sqlBuilder) Offset(n int) Builder {
-	b.clauses[query.OFFSET] = &query.Clause{Type: query.OFFSET, Value: []any{n}}
+	b.offsetSet = true
+	b.offset = n
 	return b
 }
 
@@ -140,10 +170,8 @@ func (b *sqlBuilder) BuildSelect() (string, []any) {
 	var args []any
 
 	// SELECT
-	if c, ok := b.clauses[query.SELECT]; ok {
-		s, a := c.Build()
-		sqls = append(sqls, s)
-		args = append(args, a...)
+	if len(b.selectCols) > 0 {
+		sqls = append(sqls, "SELECT "+strings.Join(b.selectCols, ", "))
 	} else {
 		sqls = append(sqls, "SELECT *")
 	}
@@ -155,20 +183,27 @@ func (b *sqlBuilder) BuildSelect() (string, []any) {
 	}
 	sqls = append(sqls, from)
 
-	if c, ok := b.clauses[query.JOIN]; ok {
-		s, a := c.Build()
-		sqls = append(sqls, s)
-		args = append(args, a...)
+	if len(b.joins) > 0 {
+		sqls = append(sqls, strings.Join(b.joins, " "))
 	}
 
-	// WHERE, ORDER BY, LIMIT, OFFSET
-	types := []query.ClauseType{query.WHERE, query.ORDERBY, query.LIMIT, query.OFFSET}
-	for _, t := range types {
-		if c, ok := b.clauses[t]; ok {
-			s, a := c.Build()
-			sqls = append(sqls, s)
-			args = append(args, a...)
-		}
+	if b.whereExpr != "" {
+		sqls = append(sqls, "WHERE "+b.whereExpr)
+		args = append(args, b.whereArgs...)
+	}
+
+	if len(b.orderBy) > 0 {
+		sqls = append(sqls, "ORDER BY "+strings.Join(b.orderBy, ", "))
+	}
+
+	if b.limitSet {
+		sqls = append(sqls, "LIMIT ?")
+		args = append(args, b.limit)
+	}
+
+	if b.offsetSet {
+		sqls = append(sqls, "OFFSET ?")
+		args = append(args, b.offset)
 	}
 
 	return strings.Join(sqls, " "), args
@@ -200,10 +235,9 @@ func (b *sqlBuilder) BuildUpdate(data map[string]any) (string, []any) {
 	}
 	sqls = append(sqls, strings.Join(sets, ", "))
 
-	if c, ok := b.clauses[query.WHERE]; ok {
-		s, a := c.Build()
-		sqls = append(sqls, s)
-		args = append(args, a...)
+	if b.whereExpr != "" {
+		sqls = append(sqls, "WHERE "+b.whereExpr)
+		args = append(args, b.whereArgs...)
 	}
 
 	return strings.Join(sqls, " "), args
@@ -216,10 +250,9 @@ func (b *sqlBuilder) BuildDelete() (string, []any) {
 
 	sqls = append(sqls, "DELETE FROM", b.dialect.Quote(b.table))
 
-	if c, ok := b.clauses[query.WHERE]; ok {
-		s, a := c.Build()
-		sqls = append(sqls, s)
-		args = append(args, a...)
+	if b.whereExpr != "" {
+		sqls = append(sqls, "WHERE "+b.whereExpr)
+		args = append(args, b.whereArgs...)
 	}
 
 	return strings.Join(sqls, " "), args
