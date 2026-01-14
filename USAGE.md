@@ -1,4 +1,4 @@
-# JORM3 用户使用示例
+# jorm 用户使用示例
 
 ## 快速开始
 
@@ -36,13 +36,14 @@ import (
     "context"
     "fmt"
     "time"
-    "github.com/yourusername/jorm3/core"
-    "github.com/yourusername/jorm3/dialect"
+    "github.com/shrek82/jorm/core"
+    "github.com/shrek82/jorm/dialect"
     _ "github.com/go-sql-driver/mysql"
+    jorm "github.com/shrek82/jorm/core"
 )
 
 func main() {
-    db, err := jorm3.Open("mysql", "user:password@tcp(127.0.0.1:3306)/dbname?charset=utf8mb4", &jorm3.Options{
+    db, err := jorm.Open("mysql", "user:password@tcp(127.0.0.1:3306)/dbname?charset=utf8mb4", &jorm.Options{
         MaxOpenConns:    10,
         MaxIdleConns:    5,
         ConnMaxLifetime: time.Hour,
@@ -52,7 +53,7 @@ func main() {
     }
     defer db.Close()
 
-    db.SetLogger(jorm3.StdLogger)
+    db.SetLogger(jorm.StdLogger)
 
     // 使用数据库...
 }
@@ -301,7 +302,7 @@ if err := tx.Commit(); err != nil {
 
 ```go
 // 自动处理提交和回滚
-err := db.Transaction(func(tx *jorm3.Tx) error {
+err := db.Transaction(func(tx *jorm.Tx) error {
     user := &User{Name: "Alice", Email: "alice@example.com"}
     id, err := tx.Model(user).Insert(user)
     if err != nil {
@@ -469,7 +470,7 @@ db.Model(&User{}).
 ### 连接池配置
 
 ```go
-db, err := jorm3.Open("mysql", dsn, &jorm3.Options{
+db, err := jorm.Open("mysql", dsn, &jorm.Options{
     MaxOpenConns:    100,  // 最大打开连接数
     MaxIdleConns:    10,   // 最大空闲连接数
     ConnMaxLifetime: time.Hour, // 连接最大生命周期
@@ -481,17 +482,17 @@ db, err := jorm3.Open("mysql", dsn, &jorm3.Options{
 
 ```go
 // 使用标准日志
-db.SetLogger(jorm3.StdLogger)
+db.SetLogger(jorm.StdLogger)
 
 // 自定义日志格式
-db.SetLogger(&jorm3.StdLoggerConfig{
-    Level:      jorm3.LogLevelInfo,
+db.SetLogger(&jorm.StdLoggerConfig{
+    Level:      jorm.LogLevelInfo,
     Format:     "json", // 或 "text"
     TimeFormat: "2006-01-02 15:04:05",
 })
 
 // 关闭SQL日志
-db.SetLogLevel(jorm3.LogLevelSilent)
+db.SetLogLevel(jorm.LogLevelSilent)
 ```
 
 ## 错误处理
@@ -502,11 +503,11 @@ import "errors"
 var user User
 err := db.Model(&User{}).Where("id = ?", 1).First(&user)
 if err != nil {
-    if errors.Is(err, jorm3.ErrRecordNotFound) {
+    if errors.Is(err, jorm.ErrRecordNotFound) {
         fmt.Println("记录不存在")
-    } else if errors.Is(err, jorm3.ErrDuplicateKey) {
+    } else if errors.Is(err, jorm.ErrDuplicateKey) {
         fmt.Println("重复的键")
-    } else if errors.Is(err, jorm3.ErrForeignKey) {
+    } else if errors.Is(err, jorm.ErrForeignKey) {
         fmt.Println("外键约束错误")
     } else if errors.Is(err, context.DeadlineExceeded) {
         fmt.Println("操作超时")
@@ -516,26 +517,26 @@ if err != nil {
 }
 
 // 常见错误类型
-// - jorm3.ErrRecordNotFound     记录不存在
-// - jorm3.ErrInvalidModel       无效的模型
-// - jorm3.ErrDuplicateKey       重复的键
-// - jorm3.ErrForeignKey         外键约束
-// - jorm3.ErrConnectionFailed   连接失败
-// - jorm3.ErrTransactionAborted 事务终止
-// - jorm3.ErrInvalidSQL         无效SQL
+// - jorm.ErrRecordNotFound     记录不存在
+// - jorm.ErrInvalidModel       无效的模型
+// - jorm.ErrDuplicateKey       重复的键
+// - jorm.ErrForeignKey         外键约束
+// - jorm.ErrConnectionFailed   连接失败
+// - jorm.ErrTransactionAborted 事务终止
+// - jorm.ErrInvalidSQL         无效SQL
 ```
 
 ## 多数据库支持
 
 ```go
 // MySQL
-db, _ := jorm3.Open("mysql", dsn, nil)
+db, _ := jorm.Open("mysql", dsn, nil)
 
 // PostgreSQL
-db, _ := jorm3.Open("postgres", dsn, nil)
+db, _ := jorm.Open("postgres", dsn, nil)
 
 // SQLite
-db, _ := jorm3.Open("sqlite3", "./test.db", nil)
+db, _ := jorm.Open("sqlite3", "./test.db", nil)
 ```
 
 ## 最佳实践
@@ -606,7 +607,7 @@ import (
     "context"
     "fmt"
     "time"
-    "github.com/yourusername/jorm3"
+    "github.com/yourusername/jorm"
     _ "github.com/go-sql-driver/mysql"
 )
 
@@ -620,7 +621,7 @@ type User struct {
 
 func main() {
     // 初始化数据库
-    db, err := jorm3.Open("mysql", "root:password@tcp(127.0.0.1:3306)/test?charset=utf8mb4", &jorm3.Options{
+    db, err := jorm.Open("mysql", "root:password@tcp(127.0.0.1:3306)/test?charset=utf8mb4", &jorm.Options{
         MaxOpenConns:    10,
         MaxIdleConns:    5,
         ConnMaxLifetime: time.Hour,
@@ -675,7 +676,7 @@ func main() {
     fmt.Printf("Updated %d rows\n", affected)
 
     // 使用事务
-    err = db.Transaction(func(tx *jorm3.Tx) error {
+    err = db.Transaction(func(tx *jorm.Tx) error {
         user2 := &User{Name: "Bob", Email: "bob@example.com", Age: 30}
         _, err := tx.Model(user2).Insert(user2)
         return err // 自动提交或回滚
