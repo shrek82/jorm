@@ -12,6 +12,7 @@ import (
 // It abstracts the SQL generation process from the execution logic.
 type Builder interface {
 	SetTable(name string) Builder
+	Alias(alias string) Builder
 	Select(columns ...string) Builder
 	Where(cond string, args ...any) Builder
 	Join(table, joinType, on string) Builder
@@ -28,6 +29,7 @@ type Builder interface {
 type sqlBuilder struct {
 	dialect dialect.Dialect
 	table   string
+	alias   string
 	clauses map[query.ClauseType]*query.Clause
 }
 
@@ -45,6 +47,7 @@ func NewBuilder(d dialect.Dialect) Builder {
 	b.dialect = d
 	// Reset builder
 	b.table = ""
+	b.alias = ""
 	for k := range b.clauses {
 		delete(b.clauses, k)
 	}
@@ -54,6 +57,11 @@ func NewBuilder(d dialect.Dialect) Builder {
 // SetTable sets the table name for the current SQL statement.
 func (b *sqlBuilder) SetTable(name string) Builder {
 	b.table = name
+	return b
+}
+
+func (b *sqlBuilder) Alias(alias string) Builder {
+	b.alias = strings.TrimSpace(alias)
 	return b
 }
 
@@ -141,7 +149,11 @@ func (b *sqlBuilder) BuildSelect() (string, []any) {
 	}
 
 	// FROM
-	sqls = append(sqls, "FROM "+b.dialect.Quote(b.table))
+	from := "FROM " + b.dialect.Quote(b.table)
+	if b.alias != "" {
+		from += " " + b.alias
+	}
+	sqls = append(sqls, from)
 
 	if c, ok := b.clauses[query.JOIN]; ok {
 		s, a := c.Build()

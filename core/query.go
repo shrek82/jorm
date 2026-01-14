@@ -58,6 +58,11 @@ func (q *Query) Table(name string) *Query {
 	return q
 }
 
+func (q *Query) Alias(alias string) *Query {
+	q.builder.Alias(alias)
+	return q
+}
+
 func (q *Query) Select(columns ...string) *Query {
 	q.builder.Select(columns...)
 	return q

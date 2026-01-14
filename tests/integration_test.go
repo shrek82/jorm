@@ -356,6 +356,39 @@ func TestIntegration(t *testing.T) {
 		}
 	})
 
+	t.Run("AliasMainTable", func(t *testing.T) {
+		db, cleanup := setupTestDB(t)
+		defer cleanup()
+
+		user := &User{
+			Name:  "AliasUser",
+			Email: "alias@example.com",
+			Age:   28,
+		}
+		_, err := db.Model(user).Insert(user)
+		if err != nil {
+			t.Fatalf("Insert before alias main table failed: %v", err)
+		}
+
+		type SimpleUser struct {
+			ID   int64  `jorm:"column:id"`
+			Name string `jorm:"column:name"`
+		}
+
+		var result SimpleUser
+		err = db.Table("user").
+			Alias("u").
+			Select("u.id as id", "u.name as name").
+			Where("u.name = ?", "AliasUser").
+			First(&result)
+		if err != nil {
+			t.Fatalf("Alias main table query failed: %v", err)
+		}
+		if result.Name != "AliasUser" {
+			t.Errorf("Expected Name AliasUser, got %s", result.Name)
+		}
+	})
+
 	t.Run("MultipleJoin", func(t *testing.T) {
 		db, cleanup := setupTestDB(t)
 		defer cleanup()
