@@ -59,13 +59,35 @@ func (b *sqlBuilder) SetTable(name string) Builder {
 
 // Select adds the SELECT clause with specified columns.
 func (b *sqlBuilder) Select(columns ...string) Builder {
-	b.clauses[query.SELECT] = &query.Clause{Type: query.SELECT, Value: []any{columns}}
+	if c, ok := b.clauses[query.SELECT]; ok {
+		existing := c.Value[0].([]string)
+		existing = append(existing, columns...)
+		c.Value[0] = existing
+	} else {
+		b.clauses[query.SELECT] = &query.Clause{Type: query.SELECT, Value: []any{columns}}
+	}
 	return b
 }
 
 // Where adds the WHERE clause with condition and arguments.
 func (b *sqlBuilder) Where(cond string, args ...any) Builder {
-	b.clauses[query.WHERE] = &query.Clause{Type: query.WHERE, Value: []any{cond, args}}
+	if c, ok := b.clauses[query.WHERE]; ok {
+		conds := c.Value[0].([]string)
+		conds = append(conds, cond)
+		c.Value[0] = conds
+
+		existingArgs := c.Value[1].([]any)
+		existingArgs = append(existingArgs, args...)
+		c.Value[1] = existingArgs
+	} else {
+		b.clauses[query.WHERE] = &query.Clause{
+			Type: query.WHERE,
+			Value: []any{
+				[]string{cond},
+				append([]any{}, args...),
+			},
+		}
+	}
 	return b
 }
 

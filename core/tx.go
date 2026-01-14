@@ -14,16 +14,12 @@ type Tx struct {
 
 // Model starts a new query builder for the given model instance within the transaction.
 func (tx *Tx) Model(value any) *Query {
-	builder := NewBuilder(tx.db.dialect)
-	q := NewQuery(tx.db, tx, builder)
-	return q.Model(value)
+	return tx.db.newQuery(tx).Model(value)
 }
 
 // Table starts a new query builder for the given table name within the transaction.
 func (tx *Tx) Table(name string) *Query {
-	builder := NewBuilder(tx.db.dialect)
-	q := NewQuery(tx.db, tx, builder)
-	return q.Table(name)
+	return tx.db.newQuery(tx).Table(name)
 }
 
 // Commit commits the transaction.

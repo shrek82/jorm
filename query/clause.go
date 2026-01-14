@@ -28,7 +28,11 @@ func (c *Clause) Build() (string, []any) {
 	case FROM:
 		return "FROM " + c.Value[0].(string), nil
 	case WHERE:
-		return "WHERE " + c.Value[0].(string), c.Value[1].([]any)
+		conds := c.Value[0].([]string)
+		if len(conds) == 0 {
+			return "", nil
+		}
+		return "WHERE " + strings.Join(conds, " AND "), c.Value[1].([]any)
 	case ORDERBY:
 		return "ORDER BY " + strings.Join(c.Value[0].([]string), ", "), nil
 	case LIMIT:

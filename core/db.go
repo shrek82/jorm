@@ -74,25 +74,24 @@ func (db *DB) SetLogger(l logger.Logger) {
 	db.logger = l
 }
 
+func (db *DB) newQuery(executor Executor) *Query {
+	builder := NewBuilder(db.dialect)
+	return NewQuery(db, executor, builder)
+}
+
 // Model starts a new query builder for the given model instance.
 func (db *DB) Model(value any) *Query {
-	builder := NewBuilder(db.dialect)
-	q := NewQuery(db, db.pool, builder)
-	return q.Model(value)
+	return db.newQuery(db.pool).Model(value)
 }
 
 // Table starts a new query builder for the given table name.
 func (db *DB) Table(name string) *Query {
-	builder := NewBuilder(db.dialect)
-	q := NewQuery(db, db.pool, builder)
-	return q.Table(name)
+	return db.newQuery(db.pool).Table(name)
 }
 
 // Raw starts a new query with a raw SQL statement.
 func (db *DB) Raw(sql string, args ...any) *Query {
-	builder := NewBuilder(db.dialect)
-	q := NewQuery(db, db.pool, builder)
-	return q.Raw(sql, args...)
+	return db.newQuery(db.pool).Raw(sql, args...)
 }
 
 // logSQL logs the SQL execution if a logger is set.

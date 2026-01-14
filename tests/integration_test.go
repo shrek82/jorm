@@ -382,4 +382,45 @@ func TestIntegration(t *testing.T) {
 			t.Errorf("Expected sum age 30, got %v", sum)
 		}
 	})
+
+	t.Run("MultipleWhereAndSelect", func(t *testing.T) {
+		db, cleanup := setupTestDB(t)
+		defer cleanup()
+
+		user := &User{
+			Name:  "MultiUser",
+			Email: "multi@example.com",
+			Age:   40,
+		}
+		id, err := db.Model(user).Insert(user)
+		if err != nil {
+			t.Fatalf("Insert before multiple where/select failed: %v", err)
+		}
+
+		var result struct {
+			ID    int64  `jorm:"column:id"`
+			Name  string `jorm:"column:name"`
+			Email string `jorm:"column:email"`
+		}
+
+		query := db.Model(&User{})
+		query = query.Where("id = ?", id)
+		query = query.Where("email = ?", "multi@example.com")
+		query = query.Select("id")
+		query = query.Select("name", "email")
+
+		err = query.First(&result)
+		if err != nil {
+			t.Fatalf("MultipleWhereAndSelect query failed: %v", err)
+		}
+		if result.ID != id {
+			t.Errorf("Expected ID %d, got %d", id, result.ID)
+		}
+		if result.Name != "MultiUser" {
+			t.Errorf("Expected Name MultiUser, got %s", result.Name)
+		}
+		if result.Email != "multi@example.com" {
+			t.Errorf("Expected Email multi@example.com, got %s", result.Email)
+		}
+	})
 }
