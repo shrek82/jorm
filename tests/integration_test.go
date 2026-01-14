@@ -26,6 +26,12 @@ type Order struct {
 	Amount float64
 }
 
+type Address struct {
+	ID     int64  `jorm:"pk auto"`
+	UserID int64  `jorm:"column:user_id"`
+	City   string `jorm:"size:100"`
+}
+
 // Hooks for User
 func (u *User) BeforeInsert() error {
 	fmt.Println("BeforeInsert hook called")
@@ -347,6 +353,81 @@ func TestIntegration(t *testing.T) {
 		}
 		if results[0].Amount != 100.5 {
 			t.Errorf("Expected Amount 100.5, got %v", results[0].Amount)
+		}
+	})
+
+	t.Run("MultipleJoin", func(t *testing.T) {
+		db, cleanup := setupTestDB(t)
+		defer cleanup()
+
+		err := db.AutoMigrate(&Order{}, &Address{})
+		if err != nil {
+			t.Fatalf("AutoMigrate Order and Address failed: %v", err)
+		}
+
+		user := &User{
+			Name:  "JoinMultiUser",
+			Email: "joinmulti@example.com",
+			Age:   35,
+		}
+		userID, err := db.Model(user).Insert(user)
+		if err != nil {
+			t.Fatalf("Insert user for multi-join failed: %v", err)
+		}
+
+		order := &Order{
+			UserID: userID,
+			Amount: 200.5,
+		}
+		_, err = db.Model(order).Insert(order)
+		if err != nil {
+			t.Fatalf("Insert order for multi-join failed: %v", err)
+		}
+
+		address := &Address{
+			UserID: userID,
+			City:   "Shanghai",
+		}
+		_, err = db.Model(address).Insert(address)
+		if err != nil {
+			t.Fatalf("Insert address for multi-join failed: %v", err)
+		}
+
+		type OrderWithUserAndAddress struct {
+			ID       int64   `jorm:"column:id"`
+			UserID   int64   `jorm:"column:user_id"`
+			Amount   float64 `jorm:"column:amount"`
+			UserName string  `jorm:"column:user_name"`
+			City     string  `jorm:"column:city"`
+		}
+
+		var results []OrderWithUserAndAddress
+		err = db.Model(&Order{}).
+			Select(
+				"`order`.id as id",
+				"`order`.user_id as user_id",
+				"`order`.amount as amount",
+				"`user`.name as user_name",
+				"`address`.city as city",
+			).
+			Join("user", "INNER", "`user`.id = `order`.user_id").
+			Join("address", "INNER", "`address`.user_id = `order`.user_id").
+			Where("`user`.name = ?", "JoinMultiUser").
+			Find(&results)
+		if err != nil {
+			t.Fatalf("Multiple join query failed: %v", err)
+		}
+		if len(results) != 1 {
+			t.Fatalf("Expected 1 multi-joined record, got %d", len(results))
+		}
+		if results[0].UserName != "JoinMultiUser" {
+			t.Errorf("Expected UserName JoinMultiUser, got %s", results[0].UserName)
+		}
+		if results[0].Amount != 200.5 {
+			t.Errorf("Expected Amount 200.5, got %v", results[0].Amount)
+		}
+		if results[0].City != "Shanghai" {
+			t.Errorf("Expected City Shanghai, got %s", results[0].City)
 		}
 	})
 
