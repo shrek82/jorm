@@ -35,6 +35,8 @@ func (c *Clause) Build() (string, []any) {
 		return "LIMIT ?", []any{c.Value[0]}
 	case OFFSET:
 		return "OFFSET ?", []any{c.Value[0]}
+	case JOIN:
+		return strings.Join(c.Value[0].([]string), " "), nil
 	}
 	return "", nil
 }

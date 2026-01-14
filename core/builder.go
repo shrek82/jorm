@@ -14,6 +14,7 @@ type Builder interface {
 	SetTable(name string) Builder
 	Select(columns ...string) Builder
 	Where(cond string, args ...any) Builder
+	Join(table, joinType, on string) Builder
 	OrderBy(columns ...string) Builder
 	Limit(n int) Builder
 	Offset(n int) Builder
@@ -68,6 +69,23 @@ func (b *sqlBuilder) Where(cond string, args ...any) Builder {
 	return b
 }
 
+func (b *sqlBuilder) Join(table, joinType, on string) Builder {
+	jt := strings.TrimSpace(joinType)
+	if jt == "" {
+		jt = "INNER"
+	}
+	quotedTable := b.dialect.Quote(table)
+	clause := jt + " JOIN " + quotedTable + " ON " + on
+	if c, ok := b.clauses[query.JOIN]; ok {
+		joins := c.Value[0].([]string)
+		joins = append(joins, clause)
+		c.Value[0] = joins
+	} else {
+		b.clauses[query.JOIN] = &query.Clause{Type: query.JOIN, Value: []any{[]string{clause}}}
+	}
+	return b
+}
+
 // OrderBy adds the ORDER BY clause.
 func (b *sqlBuilder) OrderBy(columns ...string) Builder {
 	b.clauses[query.ORDERBY] = &query.Clause{Type: query.ORDERBY, Value: []any{columns}}
@@ -102,6 +120,12 @@ func (b *sqlBuilder) BuildSelect() (string, []any) {
 
 	// FROM
 	sqls = append(sqls, "FROM "+b.dialect.Quote(b.table))
+
+	if c, ok := b.clauses[query.JOIN]; ok {
+		s, a := c.Build()
+		sqls = append(sqls, s)
+		args = append(args, a...)
+	}
 
 	// WHERE, ORDER BY, LIMIT, OFFSET
 	types := []query.ClauseType{query.WHERE, query.ORDERBY, query.LIMIT, query.OFFSET}

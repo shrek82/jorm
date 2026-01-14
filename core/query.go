@@ -10,15 +10,6 @@ import (
 	"github.com/shrek82/jorm/model"
 )
 
-// Hook interfaces for model lifecycle events
-type BeforeInserter interface{ BeforeInsert() error }
-type AfterInserter interface{ AfterInsert(id int64) error }
-type BeforeUpdater interface{ BeforeUpdate() error }
-type AfterUpdater interface{ AfterUpdate() error }
-type BeforeDeleter interface{ BeforeDelete() error }
-type AfterDeleter interface{ AfterDelete() error }
-type AfterFinder interface{ AfterFind() error }
-
 // Executor defines the interface for executing SQL queries and commands.
 // It is implemented by *sql.DB and *sql.Tx.
 type Executor interface {
@@ -67,9 +58,19 @@ func (q *Query) Table(name string) *Query {
 	return q
 }
 
+func (q *Query) Select(columns ...string) *Query {
+	q.builder.Select(columns...)
+	return q
+}
+
 // Where adds a WHERE clause to the query.
 func (q *Query) Where(cond string, args ...any) *Query {
 	q.builder.Where(cond, args...)
+	return q
+}
+
+func (q *Query) Join(table, joinType, on string) *Query {
+	q.builder.Join(table, joinType, on)
 	return q
 }
 
@@ -139,6 +140,28 @@ func (q *Query) Count() (int64, error) {
 	err := q.executor.QueryRowContext(q.ctx, sqlStr, args...).Scan(&count)
 	q.db.logSQL(sqlStr, time.Since(start), args...)
 	return count, err
+}
+
+func (q *Query) Sum(column string) (float64, error) {
+	defer PutBuilder(q.builder)
+	if q.err != nil {
+		return 0, q.err
+	}
+	quoted := q.db.dialect.Quote(column)
+	q.builder.Select("SUM(" + quoted + ")")
+	sqlStr, args := q.builder.BuildSelect()
+
+	var sum sql.NullFloat64
+	start := time.Now()
+	err := q.executor.QueryRowContext(q.ctx, sqlStr, args...).Scan(&sum)
+	q.db.logSQL(sqlStr, time.Since(start), args...)
+	if err != nil {
+		return 0, err
+	}
+	if !sum.Valid {
+		return 0, nil
+	}
+	return sum.Float64, nil
 }
 
 // Scan executes a raw query and scans the result into dest.
