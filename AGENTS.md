@@ -1,6 +1,6 @@
-# AGENTS.md - Guidelines for JORM3 Code Agents
+# AGENTS.md - Guidelines for github.com/shrek82/jorm Code Agents
 
-This file contains essential information for agentic coding tools working on the JORM3 ORM library.
+This file contains essential information for agentic coding tools working on the github.com/shrek82/jorm ORM library.
 
 ---
 
@@ -91,7 +91,7 @@ go mod why <package>
 - Group imports into three blocks separated by blank lines:
   1. Standard library
   2. Third-party packages
-  3. Project-local packages (jorm3/*)
+  3. Project-local packages (github.com/shrek82/jorm/*)
 - Sort imports alphabetically within each group
 - Use blank line between groups
 - Avoid unused imports (use `goimports` or IDE auto-import)
@@ -106,8 +106,8 @@ import (
 
     "github.com/go-sql-driver/mysql"
 
-    "jorm3/core"
-    "jorm3/dialect"
+    "github.com/shrek82/jorm/core"
+    "github.com/shrek82/jorm/dialect"
 )
 ```
 

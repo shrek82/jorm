@@ -1,4 +1,4 @@
-# JORM3 架构设计
+# github.com/shrek82/jorm 架构设计
 
 ## 设计理念
 
@@ -12,7 +12,7 @@
 ## 核心架构
 
 ```
-jorm3/
+github.com/shrek82/jorm/
 ├── core/
 │   ├── db.go          # DB主入口，连接池管理
 │   ├── query.go       # Query查询构建器，链式操作起点
