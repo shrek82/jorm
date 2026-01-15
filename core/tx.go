@@ -41,7 +41,11 @@ func (tx *Tx) Rollback() error {
 
 // QueryContext executes a query that returns rows, typically a SELECT.
 func (tx *Tx) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
-	return tx.sqlTx.QueryContext(ctx, query, args...)
+	rows, err := tx.sqlTx.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("transaction query failed: %w", err)
+	}
+	return rows, nil
 }
 
 // QueryRowContext executes a query that is expected to return at most one row.
@@ -51,5 +55,9 @@ func (tx *Tx) QueryRowContext(ctx context.Context, query string, args ...any) *s
 
 // ExecContext executes a query that doesn't return rows, such as an INSERT or UPDATE.
 func (tx *Tx) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
-	return tx.sqlTx.ExecContext(ctx, query, args...)
+	res, err := tx.sqlTx.ExecContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("transaction exec failed: %w", err)
+	}
+	return res, nil
 }

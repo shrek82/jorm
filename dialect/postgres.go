@@ -1,6 +1,7 @@
 package dialect
 
 import (
+	"database/sql"
 	"fmt"
 	"reflect"
 	"strings"
@@ -105,4 +106,38 @@ func (d *postgres) BatchInsertSQL(table string, columns []string, count int) (st
 
 func (d *postgres) Placeholder(index int) string {
 	return fmt.Sprintf("$%d", index)
+}
+
+func (d *postgres) GetColumnsSQL(tableName string) (string, []any) {
+	return "SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = $1", []any{tableName}
+}
+
+func (d *postgres) AddColumnSQL(tableName string, field *model.Field) (string, []any) {
+	sql := fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s",
+		d.Quote(tableName),
+		d.Quote(field.Column),
+		d.DataTypeOf(field.Type),
+	)
+	return sql, nil
+}
+
+func (d *postgres) ModifyColumnSQL(tableName string, field *model.Field) (string, []any) {
+	sql := fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s TYPE %s",
+		d.Quote(tableName),
+		d.Quote(field.Column),
+		d.DataTypeOf(field.Type),
+	)
+	return sql, nil
+}
+
+func (d *postgres) ParseColumns(rows *sql.Rows) ([]string, error) {
+	var columns []string
+	for rows.Next() {
+		var colName string
+		if err := rows.Scan(&colName); err != nil {
+			return nil, err
+		}
+		columns = append(columns, colName)
+	}
+	return columns, nil
 }

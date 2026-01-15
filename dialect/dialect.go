@@ -1,6 +1,7 @@
 package dialect
 
 import (
+	"database/sql"
 	"reflect"
 
 	"github.com/shrek82/jorm/model"
@@ -23,6 +24,14 @@ type Dialect interface {
 	BatchInsertSQL(table string, columns []string, count int) (string, []any)
 	// Placeholder returns the database-specific placeholder for a given index (1-based)
 	Placeholder(index int) string
+	// GetColumnsSQL generates the SQL to get columns of a table
+	GetColumnsSQL(tableName string) (string, []any)
+	// AddColumnSQL generates the SQL to add a column to a table
+	AddColumnSQL(tableName string, field *model.Field) (string, []any)
+	// ModifyColumnSQL generates the SQL to modify a column in a table
+	ModifyColumnSQL(tableName string, field *model.Field) (string, []any)
+	// ParseColumns parses the rows from GetColumnsSQL into a slice of column names
+	ParseColumns(rows *sql.Rows) ([]string, error)
 }
 
 var dialects = make(map[string]Dialect)

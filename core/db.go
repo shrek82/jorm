@@ -66,7 +66,10 @@ func Open(driver, dsn string, opts *Options) (*DB, error) {
 
 // Close closes the database connection.
 func (db *DB) Close() error {
-	return db.pool.Close()
+	if err := db.pool.Close(); err != nil {
+		return fmt.Errorf("failed to close database: %w", err)
+	}
+	return nil
 }
 
 // SetLogger sets a custom logger for the DB.
@@ -106,7 +109,10 @@ func (db *DB) Exec(sql string, args ...any) (sql.Result, error) {
 	start := time.Now()
 	res, err := db.pool.ExecContext(context.Background(), sql, args...)
 	db.logSQL(sql, time.Since(start), args...)
-	return res, err
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute sql [%s]: %w", sql, err)
+	}
+	return res, nil
 }
 
 // Transaction executes a function within a database transaction.
@@ -115,7 +121,7 @@ func (db *DB) Transaction(fn func(tx *Tx) error) (err error) {
 	sqlTx, err := db.pool.Begin()
 	db.logSQL("BEGIN", time.Since(start))
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
 
 	tx := &Tx{
@@ -137,6 +143,9 @@ func (db *DB) Transaction(fn func(tx *Tx) error) (err error) {
 			start := time.Now()
 			err = sqlTx.Commit()
 			db.logSQL("COMMIT", time.Since(start))
+			if err != nil {
+				err = fmt.Errorf("failed to commit transaction: %w", err)
+			}
 		}
 	}()
 
@@ -144,32 +153,84 @@ func (db *DB) Transaction(fn func(tx *Tx) error) (err error) {
 	return err
 }
 
-// AutoMigrate creates the table for the given model if it doesn't exist.
+// HasTable checks if a table exists in the database.
+func (db *DB) HasTable(tableName string) (bool, error) {
+	sqlStr, args := db.dialect.HasTableSQL(tableName)
+	var count int
+	err := db.pool.QueryRowContext(context.Background(), sqlStr, args...).Scan(&count)
+	if err != nil {
+		return false, fmt.Errorf("failed to check if table %s exists: %w", tableName, err)
+	}
+	return count > 0, nil
+}
+
+// AutoMigrate creates or updates the table for the given model.
 func (db *DB) AutoMigrate(values ...any) error {
 	for _, value := range values {
 		m, err := model.GetModel(value)
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to get model for migration: %w", err)
 		}
 
-		// Check if table exists
-		sqlStr, args := db.dialect.HasTableSQL(m.TableName)
-		var count int
-		err = db.pool.QueryRowContext(context.Background(), sqlStr, args...).Scan(&count)
+		exists, err := db.HasTable(m.TableName)
 		if err != nil {
 			return err
 		}
 
-		if count == 0 {
-			// Create table
+		if !exists {
 			createSQL, createArgs := db.dialect.CreateTableSQL(m)
-			start := time.Now()
-			_, err = db.pool.ExecContext(context.Background(), createSQL, createArgs...)
-			db.logSQL(createSQL, time.Since(start), createArgs...)
+			_, err = db.Exec(createSQL, createArgs...)
 			if err != nil {
+				return fmt.Errorf("failed to create table %s: %w", m.TableName, err)
+			}
+		} else {
+			if err := db.alterTableIfNeeded(m); err != nil {
 				return err
 			}
 		}
+
+		if err := db.syncIndexes(m); err != nil {
+			return err
+		}
 	}
+	return nil
+}
+
+func (db *DB) alterTableIfNeeded(m *model.Model) error {
+	sqlStr, args := db.dialect.GetColumnsSQL(m.TableName)
+	rows, err := db.pool.QueryContext(context.Background(), sqlStr, args...)
+	if err != nil {
+		return fmt.Errorf("failed to get columns for table %s: %w", m.TableName, err)
+	}
+	defer rows.Close()
+
+	colNames, err := db.dialect.ParseColumns(rows)
+	if err != nil {
+		return fmt.Errorf("failed to parse columns for table %s: %w", m.TableName, err)
+	}
+
+	existingColumns := make(map[string]bool)
+	for _, name := range colNames {
+		existingColumns[name] = true
+	}
+
+	for _, field := range m.Fields {
+		if !existingColumns[field.Column] {
+			// Add missing column
+			addSql, addArgs := db.dialect.AddColumnSQL(m.TableName, field)
+			if addSql != "" {
+				_, err = db.Exec(addSql, addArgs...)
+				if err != nil {
+					return fmt.Errorf("failed to add column %s to table %s: %w", field.Column, m.TableName, err)
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+func (db *DB) syncIndexes(m *model.Model) error {
+	// TODO: Implement index sync
 	return nil
 }

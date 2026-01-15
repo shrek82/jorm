@@ -1,6 +1,7 @@
 package dialect
 
 import (
+	"database/sql"
 	"fmt"
 	"reflect"
 	"strings"
@@ -92,4 +93,41 @@ func (d *sqlite3) BatchInsertSQL(table string, columns []string, count int) (str
 
 func (d *sqlite3) Placeholder(index int) string {
 	return "?"
+}
+
+func (d *sqlite3) GetColumnsSQL(tableName string) (string, []any) {
+	return fmt.Sprintf("PRAGMA table_info(%s)", d.Quote(tableName)), nil
+}
+
+func (d *sqlite3) AddColumnSQL(tableName string, field *model.Field) (string, []any) {
+	sql := fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s",
+		d.Quote(tableName),
+		d.Quote(field.Column),
+		d.DataTypeOf(field.Type),
+	)
+	return sql, nil
+}
+
+func (d *sqlite3) ModifyColumnSQL(tableName string, field *model.Field) (string, []any) {
+	// SQLite does not support MODIFY COLUMN directly.
+	// This usually requires creating a new table and copying data.
+	// For now, we return a no-op or error-prone SQL.
+	return "", nil
+}
+
+func (d *sqlite3) ParseColumns(rows *sql.Rows) ([]string, error) {
+	var columns []string
+	for rows.Next() {
+		var cid int
+		var name string
+		var typ string
+		var notnull int
+		var dfltValue any
+		var pk int
+		if err := rows.Scan(&cid, &name, &typ, &notnull, &dfltValue, &pk); err != nil {
+			return nil, err
+		}
+		columns = append(columns, name)
+	}
+	return columns, nil
 }
