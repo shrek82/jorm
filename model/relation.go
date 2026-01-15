@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"reflect"
 	"sync"
+	"sync/atomic"
 )
 
 type RelationType int
@@ -35,13 +36,25 @@ type RelationConfig struct {
 	JoinRef      string
 }
 
-var relationCache sync.Map
+type relationWithVersion struct {
+	relation *Relation
+	version  uint64
+}
+
+var (
+	relationCache        sync.Map
+	relationCacheVersion atomic.Uint64
+)
 
 func GetRelation(m *Model, name string) (*Relation, error) {
 	key := m.TableName + "." + name
+	version := relationCacheVersion.Load()
 
 	if cached, ok := relationCache.Load(key); ok {
-		return cached.(*Relation), nil
+		rel := cached.(*relationWithVersion)
+		if rel.version == version {
+			return rel.relation, nil
+		}
 	}
 
 	relation, err := parseRelationFromTyp(m.OriginalType, name)
@@ -49,7 +62,10 @@ func GetRelation(m *Model, name string) (*Relation, error) {
 		return nil, err
 	}
 
-	relationCache.Store(key, relation)
+	relationCache.Store(key, &relationWithVersion{
+		relation: relation,
+		version:  version,
+	})
 	return relation, nil
 }
 
@@ -236,5 +252,5 @@ func parseRelationType(relationType string, typ reflect.Type, tag *Tag) (Relatio
 }
 
 func InvalidateRelationCache() {
-	relationCache = sync.Map{}
+	relationCacheVersion.Add(1)
 }

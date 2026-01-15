@@ -34,7 +34,49 @@ type Query struct {
 }
 
 type scanPlan struct {
-	fields []*model.Field
+	fields     []*model.Field
+	converters []converter
+}
+
+type converter func(src, dst reflect.Value)
+
+var converterCache sync.Map
+
+func getConverter(srcType, dstType reflect.Type) converter {
+	key := srcType.String() + "->" + dstType.String()
+	if v, ok := converterCache.Load(key); ok {
+		return v.(converter)
+	}
+
+	var conv converter
+	if srcType == dstType {
+		conv = func(src, dst reflect.Value) {
+			dst.Set(src)
+		}
+	} else if srcType.ConvertibleTo(dstType) {
+		conv = func(src, dst reflect.Value) {
+			dst.Set(src.Convert(dstType))
+		}
+	} else {
+		conv = func(src, dst reflect.Value) {
+			// Do nothing or handle error? The original code ignored failures.
+		}
+	}
+
+	converterCache.Store(key, conv)
+	return conv
+}
+
+type scanBuffer struct {
+	values []any
+}
+
+var scanBufferPool = sync.Pool{
+	New: func() any {
+		return &scanBuffer{
+			values: make([]any, 0, 32),
+		}
+	},
 }
 
 type scanPlanKey struct {
@@ -54,24 +96,34 @@ func getScanPlan(m *model.Model, columns []string) *scanPlan {
 	}
 
 	fields := make([]*model.Field, len(columns))
+	converters := make([]converter, len(columns))
+
 	for i, col := range columns {
 		// Try exact match first
-		if field, ok := m.FieldMap[col]; ok {
-			fields[i] = field
+		var field *model.Field
+		if f, ok := m.FieldMap[col]; ok {
+			field = f
 		} else {
 			// Try matching with table prefix (e.g., "preload_user.name")
 			parts := strings.Split(col, ".")
 			if len(parts) > 1 {
 				lastPart := parts[len(parts)-1]
-				if field, ok := m.FieldMap[lastPart]; ok {
-					fields[i] = field
+				if f, ok := m.FieldMap[lastPart]; ok {
+					field = f
 				}
 			}
+		}
+
+		if field != nil {
+			fields[i] = field
+			// We can't easily get the destination field type here because of NestedIdx
+			// Let's keep it simple for now and cache the converter in setFieldValue if needed
 		}
 	}
 
 	plan := &scanPlan{
-		fields: fields,
+		fields:     fields,
+		converters: converters,
 	}
 	scanPlanCache.Store(key, plan)
 	return plan
@@ -319,28 +371,30 @@ func (q *Query) queryRows(sqlStr string, args []any, dest any) error {
 	var plan *scanPlan
 
 	for rows.Next() {
-		item := reflect.New(itemType).Interface()
+		item := reflect.New(itemType)
+		itemInterface := item.Interface()
 
 		if plan == nil {
-			m, err = model.GetModel(item)
+			m, err = model.GetModel(itemInterface)
 			if err != nil {
 				return fmt.Errorf("failed to get model metadata: %w", err)
 			}
 			plan = getScanPlan(m, columns)
 		}
 
-		if err := q.scanRowWithPlan(rows, item, plan); err != nil {
+		// Pass reflect.Value directly to avoid repeated reflect.ValueOf
+		if err := q.scanRowWithPlan(rows, item.Elem(), plan); err != nil {
 			return fmt.Errorf("row scan failed: %w", err)
 		}
 
 		// AfterFind hook
-		if h, ok := item.(AfterFinder); ok {
+		if h, ok := itemInterface.(AfterFinder); ok {
 			if err := h.AfterFind(); err != nil {
 				return fmt.Errorf("AfterFind hook failed: %w", err)
 			}
 		}
 
-		sliceValue.Set(reflect.Append(sliceValue, reflect.ValueOf(item).Elem()))
+		sliceValue.Set(reflect.Append(sliceValue, item.Elem()))
 	}
 
 	if err := rows.Err(); err != nil {
@@ -365,42 +419,51 @@ func (q *Query) scanRow(rows *sql.Rows, dest any) error {
 }
 
 func (q *Query) scanRowWithPlan(rows *sql.Rows, dest any, plan *scanPlan) error {
-	values := make([]any, len(plan.fields))
+	buf := scanBufferPool.Get().(*scanBuffer)
+	if cap(buf.values) < len(plan.fields) {
+		buf.values = make([]any, len(plan.fields))
+	} else {
+		buf.values = buf.values[:len(plan.fields)]
+	}
+	defer scanBufferPool.Put(buf)
+
 	for i, field := range plan.fields {
 		if field != nil {
-			// Ensure we are using the correct type for the scanner
-			values[i] = reflect.New(field.Type).Interface()
+			buf.values[i] = reflect.New(field.Type).Interface()
 		} else {
 			var ignore any
-			values[i] = &ignore
+			buf.values[i] = &ignore
 		}
 	}
 
-	if err := rows.Scan(values...); err != nil {
+	if err := rows.Scan(buf.values...); err != nil {
 		return err
 	}
 
-	destValue := reflect.ValueOf(dest)
-	if destValue.Kind() == reflect.Ptr {
-		destValue = destValue.Elem()
+	var destValue reflect.Value
+	if v, ok := dest.(reflect.Value); ok {
+		destValue = v
+	} else {
+		destValue = reflect.ValueOf(dest)
+		if destValue.Kind() == reflect.Ptr {
+			destValue = destValue.Elem()
+		}
 	}
 
 	for i, field := range plan.fields {
 		if field != nil {
-			val := reflect.ValueOf(values[i]).Elem()
-			setFieldValue(destValue, field, val)
+			val := reflect.ValueOf(buf.values[i]).Elem()
+			setFieldValue(destValue, field, val, plan, i)
 		}
 	}
 
 	return nil
 }
 
-func setFieldValue(dest reflect.Value, field *model.Field, value reflect.Value) {
-	// Debug print
-	// fmt.Printf("Setting field %s (type %v) with value %v (type %v)\n", field.Name, field.Type, value.Interface(), value.Type())
-
+func setFieldValue(dest reflect.Value, field *model.Field, value reflect.Value, plan *scanPlan, index int) {
+	var f reflect.Value
 	if len(field.NestedIdx) > 0 {
-		f := dest
+		f = dest
 		for _, i := range field.NestedIdx {
 			if f.Kind() == reflect.Ptr {
 				if f.IsNil() {
@@ -413,24 +476,17 @@ func setFieldValue(dest reflect.Value, field *model.Field, value reflect.Value) 
 			}
 			f = f.Field(i)
 		}
-		if f.CanSet() {
-			// Handle type mismatch for basic types (e.g., int64 vs int)
-			if f.Type() != value.Type() && value.Type().ConvertibleTo(f.Type()) {
-				f.Set(value.Convert(f.Type()))
-			} else if f.Type() == value.Type() {
-				f.Set(value)
-			}
-		}
 	} else {
-		f := dest.Field(field.Index)
-		if f.CanSet() {
-			// Handle type mismatch for basic types
-			if f.Type() != value.Type() && value.Type().ConvertibleTo(f.Type()) {
-				f.Set(value.Convert(f.Type()))
-			} else if f.Type() == value.Type() {
-				f.Set(value)
-			}
+		f = dest.Field(field.Index)
+	}
+
+	if f.CanSet() {
+		conv := plan.converters[index]
+		if conv == nil {
+			conv = getConverter(value.Type(), f.Type())
+			plan.converters[index] = conv
 		}
+		conv(value, f)
 	}
 }
 

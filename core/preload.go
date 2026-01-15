@@ -669,7 +669,7 @@ func (e *preloadExecutor) scanRow(rows *sql.Rows, dest any) error {
 	for i, field := range plan.fields {
 		if field != nil {
 			val := reflect.ValueOf(values[i]).Elem()
-			setFieldValue(destValue, field, val)
+			setFieldValue(destValue, field, val, plan, i)
 		}
 	}
 
