@@ -127,33 +127,33 @@ func (l *stdLogger) WithFields(fields map[string]any) Logger {
 
 func (l *stdLogger) Info(format string, args ...any) {
 	if l.level >= LogLevelInfo {
-		l.emit("INFO", format, args...)
+		l.emit("INFO", format, args)
 	}
 }
 
 func (l *stdLogger) Warn(format string, args ...any) {
 	if l.level >= LogLevelWarn {
-		l.emit("WARN", format, args...)
+		l.emit("WARN", format, args)
 	}
 }
 
 func (l *stdLogger) Error(format string, args ...any) {
 	if l.level >= LogLevelError {
-		l.emit("ERROR", format, args...)
+		l.emit("ERROR", format, args)
 	}
 }
 
 func (l *stdLogger) SQL(sql string, duration time.Duration, args ...any) {
 	if l.level >= LogLevelInfo {
 		if l.format == LogFormatJSON {
-			l.emit("SQL", "", "sql", sql, "duration", duration.String(), "args", args)
+			l.emit("SQL", "", []any{"sql", sql, "duration", duration.String(), "args", args})
 		} else {
-			l.emit("SQL", "[%v] %s | args: %v", duration, sql, args)
+			l.emit("SQL", "[%v] %s | args: %v", []any{duration, sql, args})
 		}
 	}
 }
 
-func (l *stdLogger) emit(level string, format string, args ...any) {
+func (l *stdLogger) emit(level string, fmtStr string, args []any) {
 	now := time.Now()
 	msgLevel := l.parseLevel(level)
 
@@ -180,11 +180,11 @@ func (l *stdLogger) emit(level string, format string, args ...any) {
 		}
 		data["time"] = now.Format(time.RFC3339)
 		data["level"] = level
-		if format != "" {
+		if fmtStr != "" {
 			if len(args) > 0 {
-				data["msg"] = fmt.Sprintf(format, args...)
+				data["msg"] = fmt.Sprintf(fmtStr, args...)
 			} else {
-				data["msg"] = format
+				data["msg"] = fmtStr
 			}
 		} else if len(args) >= 2 {
 			// Handle structured fields passed as args for SQL log or similar
@@ -203,8 +203,8 @@ func (l *stdLogger) emit(level string, format string, args ...any) {
 		}
 	} else {
 		msg := ""
-		if format != "" {
-			msg = fmt.Sprintf(format, args...)
+		if fmtStr != "" {
+			msg = fmt.Sprintf(fmtStr, args...)
 		}
 
 		if level == "SQL" && len(args) >= 2 {

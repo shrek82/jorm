@@ -155,6 +155,9 @@ func (m *Model) parseFields(typ reflect.Type, baseIndex []int) error {
 			AutoTime:   tag.AutoTime,
 			AutoUpdate: tag.AutoUpdate,
 			IsUnique:   tag.Unique,
+			Size:       tag.Size,
+			NotNull:    tag.NotNull,
+			Default:    tag.Default,
 			SQLType:    tag.Type,
 			Tag:        tagStr,
 		}

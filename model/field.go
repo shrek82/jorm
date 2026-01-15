@@ -19,6 +19,9 @@ type Field struct {
 	AutoTime   bool         // Set time on insert
 	AutoUpdate bool         // Set time on update
 	IsUnique   bool         // Is unique index
+	Size       int          // Varchar size
+	NotNull    bool         // Is not null
+	Default    string       // Default value
 	SQLType    string       // Custom SQL type from tag
 	Tag        string       // Raw tag string
 	Accessor   Accessor     // Pre-generated field accessor

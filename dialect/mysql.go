@@ -63,8 +63,17 @@ func (d *mysql) CreateTableSQL(m *model.Model) (string, []any) {
 		sqlType := field.SQLType
 		if sqlType == "" {
 			sqlType = d.DataTypeOf(field.Type)
+			if field.Size > 0 && sqlType == "varchar(255)" {
+				sqlType = fmt.Sprintf("varchar(%d)", field.Size)
+			}
 		}
 		column := fmt.Sprintf("%s %s", d.Quote(field.Column), sqlType)
+		if field.NotNull {
+			column += " NOT NULL"
+		}
+		if field.Default != "" {
+			column += " DEFAULT " + field.Default
+		}
 		if field.IsPK {
 			column += " PRIMARY KEY"
 		}
@@ -108,19 +117,49 @@ func (d *mysql) GetColumnsSQL(tableName string) (string, []any) {
 }
 
 func (d *mysql) AddColumnSQL(tableName string, field *model.Field) (string, []any) {
-	sql := fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s",
+	sqlType := field.SQLType
+	if sqlType == "" {
+		sqlType = d.DataTypeOf(field.Type)
+		if field.Size > 0 && sqlType == "varchar(255)" {
+			sqlType = fmt.Sprintf("varchar(%d)", field.Size)
+		}
+	}
+	modifiers := ""
+	if field.NotNull {
+		modifiers += " NOT NULL"
+	}
+	if field.Default != "" {
+		modifiers += " DEFAULT " + field.Default
+	}
+	sql := fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s%s",
 		d.Quote(tableName),
 		d.Quote(field.Column),
-		d.DataTypeOf(field.Type),
+		sqlType,
+		modifiers,
 	)
 	return sql, nil
 }
 
 func (d *mysql) ModifyColumnSQL(tableName string, field *model.Field) (string, []any) {
-	sql := fmt.Sprintf("ALTER TABLE %s MODIFY COLUMN %s %s",
+	sqlType := field.SQLType
+	if sqlType == "" {
+		sqlType = d.DataTypeOf(field.Type)
+		if field.Size > 0 && sqlType == "varchar(255)" {
+			sqlType = fmt.Sprintf("varchar(%d)", field.Size)
+		}
+	}
+	modifiers := ""
+	if field.NotNull {
+		modifiers += " NOT NULL"
+	}
+	if field.Default != "" {
+		modifiers += " DEFAULT " + field.Default
+	}
+	sql := fmt.Sprintf("ALTER TABLE %s MODIFY COLUMN %s %s%s",
 		d.Quote(tableName),
 		d.Quote(field.Column),
-		d.DataTypeOf(field.Type),
+		sqlType,
+		modifiers,
 	)
 	return sql, nil
 }
