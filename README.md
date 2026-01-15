@@ -8,10 +8,12 @@
 - **链式操作**：流畅的 API 设计，支持链式调用
 - **类型安全**：基于反射的动态类型处理，编译时检查
 - **多数据库支持**：支持 MySQL、PostgreSQL、SQLite 等
-- **事务管理**：提供手动事务和函数式事务两种方式
+- **事务管理**：提供函数式事务支持，自动提交/回滚
 - **钩子函数**：支持 Before/After 操作钩子
-- **连接池**：内置连接池管理，支持自定义配置
-- **自动迁移**：支持基于模型的表结构自动创建
+- **连接池**：内置连接池管理，支持重试机制
+- **自动迁移**：支持基于模型的表结构自动创建和更新
+- **关联预加载**：支持 BelongsTo、HasOne、HasMany、ManyToMany 关系预加载
+- **数据验证**：内置数据验证器，支持多种验证规则
 - **Context 支持**：支持超时控制和操作取消
 
 ## 安装
@@ -112,14 +114,15 @@ db, err := core.Open("postgres", "host=localhost port=5432 user=postgres dbname=
 db, err := core.Open("sqlite3", "./app.db", opts)
 ```
 
-连接池配置：
+ 连接池配置：
 
 ```go
 &core.Options{
     MaxOpenConns:    100,                  // 最大打开连接数
     MaxIdleConns:    10,                   // 最大空闲连接数
     ConnMaxLifetime: time.Hour,            // 连接最大生命周期
-    ConnMaxIdleTime: time.Minute * 10,     // 空闲连接最大存活时间
+    MaxRetries:      3,                    // 连接失败重试次数
+    RetryDelay:      time.Second,           // 重试延迟
 }
 ```
 
@@ -188,6 +191,28 @@ db.Model(&User{}).
     Find(&users)
 ```
 
+#### 分组和过滤
+
+```go
+// 分组统计
+type Result struct {
+    Category string `jorm:"column:category"`
+    Total    int64  `jorm:"column:total"`
+}
+var results []Result
+err := db.Model(&User{}).
+    Select("category, COUNT(*) as total").
+    GroupBy("category").
+    Find(&results)
+
+// 分组后过滤
+err = db.Model(&User{}).
+    Select("category, COUNT(*) as total").
+    GroupBy("category").
+    Having("total > ?", 10).
+    Find(&results)
+```
+
 #### 字段选择
 
 ```go
@@ -205,6 +230,50 @@ var result Result
 db.Model(&User{}).
     Select("COUNT(*) as count", "AVG(age) as avg_age").
     Scan(&result)
+```
+
+#### 关联预加载
+
+```go
+type User struct {
+    ID      int64      `jorm:"pk auto"`
+    Name    string
+    Orders  []Order    `jorm:"fk:User.ID"`
+    Profile *Profile   `jorm:"fk:User.ID"`
+}
+
+// 预加载关联
+var users []User
+err := db.Model(&User{}).Preload("Orders").Find(&users)
+
+// 带条件的预加载
+err = db.Model(&User{}).
+    PreloadWith("Orders", func(q *core.Query) {
+        q.Where("status = ?", "completed")
+    }).
+    Find(&users)
+
+// 嵌套预加载
+err = db.Model(&User{}).
+    Preload("Profile").
+    Preload("Orders").
+    Find(&users)
+```
+
+#### 表别名
+
+```go
+// 设置表别名
+db.Table("user").Alias("u").
+    Select("u.id", "u.name").
+    Where("u.age > ?", 20).
+    Find(&users)
+
+// 使用别名进行JOIN
+db.Model(&Order{}).
+    Select("`order`.id", "u.name").
+    Joins("INNER JOIN `user` AS u ON u.id = `order`.user_id").
+    Find(&orders)
 ```
 
 ### 插入操作
@@ -266,40 +335,10 @@ var users []User
 err := db.Raw("SELECT * FROM user WHERE age > ?", 20).Scan(&users)
 
 // 执行原生命令
-result, err := db.Exec("UPDATE user SET age = age + 1 WHERE id = ?", 1)
-rowsAffected, _ := result.RowsAffected()
+affected, err := db.Raw("UPDATE user SET age = age + 1 WHERE id = ?", 1).Exec()
 ```
 
 ## 事务
-
-### 手动事务管理
-
-```go
-tx, err := db.Begin()
-if err != nil {
-    panic(err)
-}
-
-// 在事务中执行操作
-user := &User{Name: "Alice", Email: "alice@example.com"}
-id, err := tx.Model(user).Insert(user)
-if err != nil {
-    tx.Rollback()
-    panic(err)
-}
-
-order := &Order{UserID: id, Amount: 100.0, Status: "pending"}
-_, err = tx.Model(order).Insert(order)
-if err != nil {
-    tx.Rollback()
-    panic(err)
-}
-
-// 提交事务
-if err := tx.Commit(); err != nil {
-    panic(err)
-}
-```
 
 ### 函数式事务（推荐）
 
@@ -411,15 +450,14 @@ if err == context.Canceled {
 ```go
 import "github.com/shrek82/jorm/logger"
 
-// 使用标准日志
+// 使用标准日志（默认为Error级别）
 db.SetLogger(logger.NewStdLogger())
 
-// 自定义日志
-db.SetLogger(&logger.StdLoggerConfig{
-    Level:      logger.LogLevelInfo,
-    Format:     "json", // 或 "text"
-    TimeFormat: "2006-01-02 15:04:05",
-})
+// 自定义日志级别和格式
+customLogger := logger.NewStdLogger()
+customLogger.SetLevel(logger.LogLevelInfo)
+customLogger.SetFormat(logger.LogFormatJSON)
+db.SetLogger(customLogger)
 ```
 
 ## 错误处理
@@ -438,6 +476,122 @@ if err != nil {
         fmt.Printf("查询错误: %v\n", err)
     }
 }
+```
+
+## 数据验证
+
+JORM 内置了强大的数据验证功能，可以在插入或更新前验证数据。
+
+```go
+import "github.com/shrek82/jorm"
+
+type ValidateUser struct {
+    Name  string `jorm:"size:100"`
+    Email string `jorm:"size:100"`
+    Age   int
+}
+
+func (u *ValidateUser) GetValidator() jorm.Validator {
+    return jorm.Rules{
+        "Name":  {jorm.Required, jorm.MinLen(2)},
+        "Email": {jorm.Required, jorm.Email},
+        "Age":   {jorm.Required, jorm.Range(18, 100)},
+    }.Validate
+}
+
+// 带验证的插入
+user := &ValidateUser{Name: "Shrek", Email: "shrek@example.com", Age: 25}
+id, err := db.Model(user).InsertWithValidator(user, user.GetValidator())
+if err != nil {
+    // 处理验证错误
+    errs, ok := err.(jorm.ValidationErrors)
+    if ok {
+        fmt.Println("验证失败:", errs)
+    }
+}
+
+// 带验证的更新
+affected, err := db.Model(user).
+    Where("id = ?", id).
+    UpdateWithValidator(user, user.GetValidator())
+```
+
+内置验证规则：
+- `Required`: 必填字段
+- `MinLen(n)`, `MaxLen(n)`: 字符串长度限制
+- `Range(min, max)`: 数值范围
+- `Email`: 邮箱格式
+- `Mobile`: 手机号格式
+- `URL`: URL格式
+- `IP`: IP地址格式
+- `UUID`: UUID格式
+- `JSON`: JSON格式
+- `Numeric`: 纯数字
+- `Alpha`, `AlphaNumeric`: 字母/字母数字
+- `Datetime(format)`: 日期时间格式
+- `In(v1, v2, ...)`: 枚举值
+- `Contains(substr)`, `Excludes(substr)`: 包含/排除子串
+- `NoHTML`: 不允许HTML标签
+
+## 数据库迁移
+
+JORM 支持基于模型的自动迁移，也支持版本化的数据库迁移。
+
+### AutoMigrate
+
+```go
+// 自动创建表（如果不存在）并添加缺失的字段
+err := db.AutoMigrate(&User{}, &Order{}, &Profile{})
+```
+
+### 版本化迁移
+
+```go
+// 创建迁移器
+migrator := core.NewMigrator(db)
+
+// 定义迁移
+migrations := []*core.Migration{
+    {
+        Version:     1,
+        Description: "Create users table",
+        Up: func(db *core.DB) error {
+            _, err := db.Exec(`
+                CREATE TABLE users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    email TEXT UNIQUE
+                )
+            `)
+            return err
+        },
+        Down: func(db *core.DB) error {
+            _, err := db.Exec("DROP TABLE users")
+            return err
+        },
+    },
+    {
+        Version:     2,
+        Description: "Add age column to users",
+        Up: func(db *core.DB) error {
+            _, err := db.Exec("ALTER TABLE users ADD COLUMN age INTEGER")
+            return err
+        },
+        Down: func(db *core.DB) error {
+            // SQLite不支持删除列，需要重建表
+            return nil
+        },
+    },
+}
+
+// 执行迁移
+err := migrator.Migrate(migrations...)
+if err != nil {
+    panic(err)
+}
+
+// 回滚迁移
+err = migrator.Rollback(migrations[1])
 ```
 
 ## 注意事项
