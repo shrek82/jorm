@@ -600,10 +600,7 @@ func (q *Query) Insert(value any) (int64, error) {
 		return 0, q.handleError(fmt.Errorf("Insert execution failed: %w", err))
 	}
 
-	id, err := res.LastInsertId()
-	if err != nil {
-		return 0, q.handleError(fmt.Errorf("failed to get last insert id: %w", err))
-	}
+	id, _ := res.LastInsertId()
 
 	if m.PKField != nil && m.PKField.IsAuto {
 		setPKValue(value, m.PKField, id)

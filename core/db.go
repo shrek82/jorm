@@ -386,10 +386,13 @@ func (db *DB) syncIndexes(m *model.Model) error {
 		if field.IsUnique {
 			indexName := fmt.Sprintf("idx_%s_%s", m.TableName, field.Column)
 
-			// For SQLite, check by name if columns are empty
+			// Check by index name (case-insensitive) first
 			existsByName := false
-			if _, ok := existingIndexes[indexName]; ok {
-				existsByName = true
+			for name := range existingIndexes {
+				if strings.EqualFold(name, indexName) {
+					existsByName = true
+					break
+				}
 			}
 
 			if !existsByName && !hasIndex([]string{field.Column}, true) {
@@ -397,6 +400,11 @@ func (db *DB) syncIndexes(m *model.Model) error {
 				if createIdxSQL != "" {
 					_, err = db.Exec(createIdxSQL, createIdxArgs...)
 					if err != nil {
+						// Ignore duplicate index errors to keep AutoMigrate idempotent across databases
+						msg := err.Error()
+						if strings.Contains(msg, "Duplicate key name") || strings.Contains(msg, "already exists") {
+							continue
+						}
 						return fmt.Errorf("failed to create unique index %s on table %s: %w", indexName, m.TableName, err)
 					}
 				}

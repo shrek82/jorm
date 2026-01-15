@@ -67,7 +67,7 @@ func (d *mysql) CreateTableSQL(m *model.Model) (string, []any) {
 }
 
 func (d *mysql) HasTableSQL(tableName string) (string, []any) {
-	return "SELECT count(*) FROM information_schema.tables WHERE table_name = ?", []any{tableName}
+	return "SELECT count(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ?", []any{tableName}
 }
 
 func (d *mysql) BatchInsertSQL(table string, columns []string, count int) (string, []any) {
@@ -93,7 +93,7 @@ func (d *mysql) Placeholder(index int) string {
 }
 
 func (d *mysql) GetColumnsSQL(tableName string) (string, []any) {
-	return "SELECT column_name FROM information_schema.columns WHERE table_name = ?", []any{tableName}
+	return "SELECT column_name FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = ?", []any{tableName}
 }
 
 func (d *mysql) AddColumnSQL(tableName string, field *model.Field) (string, []any) {
