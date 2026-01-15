@@ -236,6 +236,16 @@ func (q *Query) Joins(query string, args ...any) *Query {
 	return q
 }
 
+func (q *Query) GroupBy(columns ...string) *Query {
+	q.builder.GroupBy(columns...)
+	return q
+}
+
+func (q *Query) Having(cond string, args ...any) *Query {
+	q.builder.Having(cond, args...)
+	return q
+}
+
 // First retrieves the first record matching the query into dest.
 func (q *Query) First(dest any) error {
 	defer PutBuilder(q.builder)

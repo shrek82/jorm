@@ -19,6 +19,8 @@ type Builder interface {
 	OrWhere(cond string, args ...any) Builder
 	WhereIn(column string, values any) Builder
 	Joins(query string, args ...any) Builder
+	GroupBy(columns ...string) Builder
+	Having(cond string, args ...any) Builder
 	OrderBy(columns ...string) Builder
 	Limit(n int) Builder
 	Offset(n int) Builder
@@ -38,6 +40,9 @@ type sqlBuilder struct {
 	whereArgs  []any
 	joins      []string
 	joinArgs   []any
+	groupBy    []string
+	havingExpr string
+	havingArgs []any
 	orderBy    []string
 	limitSet   bool
 	limit      int
@@ -62,6 +67,9 @@ func NewBuilder(d dialect.Dialect) Builder {
 	b.whereArgs = b.whereArgs[:0]
 	b.joins = b.joins[:0]
 	b.joinArgs = b.joinArgs[:0]
+	b.groupBy = b.groupBy[:0]
+	b.havingExpr = ""
+	b.havingArgs = b.havingArgs[:0]
 	b.orderBy = b.orderBy[:0]
 	b.limitSet = false
 	b.limit = 0
@@ -154,6 +162,24 @@ func (b *sqlBuilder) Joins(query string, args ...any) Builder {
 	return b
 }
 
+func (b *sqlBuilder) GroupBy(columns ...string) Builder {
+	b.groupBy = append(b.groupBy, columns...)
+	return b
+}
+
+func (b *sqlBuilder) Having(cond string, args ...any) Builder {
+	if cond == "" {
+		return b
+	}
+	if b.havingExpr == "" {
+		b.havingExpr = "(" + cond + ")"
+	} else {
+		b.havingExpr = b.havingExpr + " AND (" + cond + ")"
+	}
+	b.havingArgs = append(b.havingArgs, args...)
+	return b
+}
+
 func isValidJoinClause(query string) bool {
 	upper := strings.ToUpper(query)
 	// Check for forbidden characters/sequences that indicate multiple statements or comments
@@ -238,6 +264,15 @@ func (b *sqlBuilder) BuildSelect() (string, []any) {
 	if b.whereExpr != "" {
 		sqls = append(sqls, "WHERE "+b.whereExpr)
 		args = append(args, b.whereArgs...)
+	}
+
+	if len(b.groupBy) > 0 {
+		sqls = append(sqls, "GROUP BY "+strings.Join(b.groupBy, ", "))
+	}
+
+	if b.havingExpr != "" {
+		sqls = append(sqls, "HAVING "+b.havingExpr)
+		args = append(args, b.havingArgs...)
 	}
 
 	if len(b.orderBy) > 0 {
