@@ -48,10 +48,17 @@ func (m *{{.StructName}}) TableName() string {
 
 // Field 代表模型中的一个字段
 type Field struct {
-	Name    string // Go 结构体字段名
-	Type    string // Go 类型
-	Tag     string // jorm 标签
-	Comment string // 数据库字段注释
+	Name      string // Go 结构体字段名
+	Column    string // 数据库列名
+	Type      string // Go 类型
+	Tag       string // jorm 标签
+	Comment   string // 数据库字段注释
+	IsPK      bool
+	IsAuto    bool
+	IsNotNull bool
+	IsUnique  bool
+	Default   string
+	Size      int
 }
 
 // ModelData 代表生成模板所需的数据
@@ -205,11 +212,30 @@ func fetchTableInfo(db *sql.DB, driver, table string) ([]Field, error) {
 			if err := rows.Scan(&cid, &name, &dataType, &notnull, &dfltValue, &pk); err != nil {
 				return nil, err
 			}
-			fields = append(fields, Field{
-				Name: snakeToCamel(name, true),
-				Type: mapType(dataType),
-				Tag:  generateTag(name, dataType, pk == 1, notnull == 1),
-			})
+
+			f := Field{
+				Name:      snakeToCamel(name, true),
+				Column:    name,
+				Type:      mapType(dataType),
+				IsPK:      pk == 1,
+				IsNotNull: notnull == 1,
+				Default:   dfltValue.String,
+			}
+
+			if f.IsPK && strings.Contains(strings.ToUpper(dataType), "INT") {
+				f.IsAuto = true
+			}
+
+			// 提取 Size
+			if strings.Contains(dataType, "(") {
+				fmt.Sscanf(dataType[strings.Index(dataType, "(")+1:], "%d", &f.Size)
+			}
+
+			// Unique 检查 (SQLite 比较麻烦，暂时简单处理或略过，因为 UNI 标签在 jorm 中不是必须的)
+			// 这里可以后续优化
+
+			f.Tag = generateTag(f)
+			fields = append(fields, f)
 		}
 	case "mysql":
 		rows, err := db.Query(fmt.Sprintf("SHOW FULL COLUMNS FROM %s", table))
@@ -233,14 +259,30 @@ func fetchTableInfo(db *sql.DB, driver, table string) ([]Field, error) {
 			if err := rows.Scan(&field, &typ, &collation, &null, &key, &defaultVal, &extra, &privileges, &comment); err != nil {
 				return nil, err
 			}
-			isPK := key == "PRI"
-			isNotNull := null == "NO"
-			fields = append(fields, Field{
-				Name:    snakeToCamel(field, true),
-				Type:    mapType(typ),
-				Tag:     generateTag(field, typ, isPK, isNotNull),
-				Comment: comment,
-			})
+
+			f := Field{
+				Name:      snakeToCamel(field, true),
+				Column:    field,
+				Type:      mapType(typ),
+				Comment:   comment,
+				IsPK:      key == "PRI",
+				IsNotNull: null == "NO",
+				IsUnique:  key == "UNI",
+				Default:   defaultVal.String,
+			}
+
+			// 提取自增
+			if strings.Contains(strings.ToLower(extra), "auto_increment") {
+				f.IsAuto = true
+			}
+
+			// 提取 Size
+			if strings.Contains(typ, "(") {
+				fmt.Sscanf(typ[strings.Index(typ, "(")+1:], "%d", &f.Size)
+			}
+
+			f.Tag = generateTag(f)
+			fields = append(fields, f)
 		}
 	case "postgres":
 		rows, err := db.Query(`
@@ -249,7 +291,9 @@ func fetchTableInfo(db *sql.DB, driver, table string) ([]Field, error) {
 				c.data_type, 
 				c.is_nullable,
 				CASE WHEN tc.constraint_type = 'PRIMARY KEY' THEN 'YES' ELSE 'NO' END as is_pk,
-				d.description as comment
+				d.description as comment,
+				c.column_default,
+				c.character_maximum_length
 			FROM information_schema.columns c
 			LEFT JOIN information_schema.key_column_usage kcu 
 				ON c.table_name = kcu.table_name 
@@ -269,16 +313,29 @@ func fetchTableInfo(db *sql.DB, driver, table string) ([]Field, error) {
 
 		for rows.Next() {
 			var name, dataType, isNullable, isPK string
-			var comment sql.NullString
-			if err := rows.Scan(&name, &dataType, &isNullable, &isPK, &comment); err != nil {
+			var comment, columnDefault sql.NullString
+			var maxLength sql.NullInt64
+			if err := rows.Scan(&name, &dataType, &isNullable, &isPK, &comment, &columnDefault, &maxLength); err != nil {
 				return nil, err
 			}
-			fields = append(fields, Field{
-				Name:    snakeToCamel(name, true),
-				Type:    mapType(dataType),
-				Tag:     generateTag(name, dataType, isPK == "YES", isNullable == "NO"),
-				Comment: comment.String,
-			})
+
+			f := Field{
+				Name:      snakeToCamel(name, true),
+				Column:    name,
+				Type:      mapType(dataType),
+				Comment:   comment.String,
+				IsPK:      isPK == "YES",
+				IsNotNull: isNullable == "NO",
+				Default:   columnDefault.String,
+				Size:      int(maxLength.Int64),
+			}
+
+			if f.IsPK && strings.Contains(strings.ToLower(f.Default), "nextval") {
+				f.IsAuto = true
+			}
+
+			f.Tag = generateTag(f)
+			fields = append(fields, f)
 		}
 	}
 	return fields, nil
@@ -304,22 +361,30 @@ func mapType(dbType string) string {
 }
 
 // generateTag 生成 jorm 标签内容
-func generateTag(column, dbType string, isPK, isNotNull bool) string {
+func generateTag(f Field) string {
 	var tags []string
-	tags = append(tags, fmt.Sprintf("column:%s", column))
-	if isPK {
+	tags = append(tags, fmt.Sprintf("column:%s", f.Column))
+	if f.IsPK {
 		tags = append(tags, "pk")
-		// 如果是整数类型，通常是自增主键
-		if strings.Contains(strings.ToUpper(dbType), "INT") {
+		if f.IsAuto {
 			tags = append(tags, "auto")
 		}
 	}
-	if isNotNull {
+	if f.IsNotNull {
 		tags = append(tags, "notnull")
+	}
+	if f.IsUnique {
+		tags = append(tags, "unique")
+	}
+	if f.Default != "" {
+		tags = append(tags, fmt.Sprintf("default:%s", f.Default))
+	}
+	if f.Size > 0 {
+		tags = append(tags, fmt.Sprintf("size:%d", f.Size))
 	}
 
 	// 针对时间字段的特殊处理
-	colLower := strings.ToLower(column)
+	colLower := strings.ToLower(f.Column)
 	if colLower == "created_at" {
 		tags = append(tags, "auto_time")
 	} else if colLower == "updated_at" {

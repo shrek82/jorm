@@ -1,6 +1,7 @@
 package model
 
 import (
+	"fmt"
 	"strings"
 )
 
@@ -84,6 +85,10 @@ func ParseTag(tagStr string) *Tag {
 			tag.Unique = true
 		case "notnull":
 			tag.NotNull = true
+		case "size":
+			if val != "" {
+				fmt.Sscanf(val, "%d", &tag.Size)
+			}
 		case "default":
 			tag.Default = strings.TrimSpace(subParts[0])
 		case "fk":

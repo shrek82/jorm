@@ -48,19 +48,19 @@ jorm-gen -driver postgres -dsn "host=localhost user=postgres password=secret dbn
 `jorm-gen` 会根据数据库字段自动推断并生成以下特性：
 
 - **命名转换**：数据库的 `snake_case` 命名会自动转换为 Go 的 `PascalCase`。特别地，`id` 会转换为 `ID`。
-- **类型映射**：
-    - `INT`/`BIGINT` -> `int64`
-    - `VARCHAR`/`TEXT` -> `string`
-    - `DATETIME`/`TIMESTAMP` -> `time.Time`
-    - `FLOAT`/`DECIMAL` -> `float64`
-    - `BOOL` -> `bool`
-- **JORM 标签**：
+- **字段标签生成**：
     - `column:xxx`: 指定列名。
     - `pk`: 标识主键。
     - `auto`: 标识自增字段。
     - `notnull`: 标识非空约束。
+    - `unique`: 标识唯一索引。
+    - `default:xxx`: 标识默认值。
+    - `size:xxx`: 标识字段长度（如 VARCHAR(100)）。
     - `auto_time`: 针对 `created_at` 字段自动添加。
     - `auto_update`: 针对 `updated_at` 字段自动添加。
+- **注释支持**：自动从数据库（MySQL/Postgres）提取字段注释并生成 Go 注释。
+- **类型映射**：智能将数据库类型映射为 Go 标准类型（int64, string, time.Time 等）。
+- **TableName 方法**：自动生成 `TableName()` 方法以支持自定义表名。
 
 ## 5. 注意事项
 
