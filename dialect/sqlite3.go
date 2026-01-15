@@ -28,6 +28,10 @@ func (d *sqlite3) DataTypeOf(typ reflect.Type) string {
 		return "real"
 	case reflect.String:
 		return "text"
+	case reflect.Slice:
+		if typ.Elem().Kind() == reflect.Uint8 {
+			return "blob"
+		}
 	case reflect.Struct:
 		if typ.Name() == "Time" {
 			return "datetime"
@@ -56,7 +60,11 @@ func (d *sqlite3) InsertSQL(table string, columns []string) (string, []any) {
 func (d *sqlite3) CreateTableSQL(m *model.Model) (string, []any) {
 	var columns []string
 	for _, field := range m.Fields {
-		column := fmt.Sprintf("%s %s", d.Quote(field.Column), d.DataTypeOf(field.Type))
+		sqlType := field.SQLType
+		if sqlType == "" {
+			sqlType = d.DataTypeOf(field.Type)
+		}
+		column := fmt.Sprintf("%s %s", d.Quote(field.Column), sqlType)
 		if field.IsPK {
 			column += " PRIMARY KEY"
 		}

@@ -42,6 +42,8 @@ func setupMySQLTestDB(t *testing.T) (*core.DB, func()) {
 	myLog.SetFormat(logger.LogFormatText)
 	db.SetLogger(myLog)
 
+	_, _ = db.Exec("DROP TABLE IF EXISTS `user`")
+
 	err = db.AutoMigrate(&User{})
 	if err != nil {
 		db.Close()
@@ -77,9 +79,10 @@ func TestMySQLIntegration(t *testing.T) {
 		defer cleanup()
 
 		user := &User{
-			Name:  "MySQLUser",
-			Email: "mysql@example.com",
-			Age:   30,
+			Name:        "MySQLUser",
+			Email:       "mysql@example.com",
+			Age:         30,
+			Preferences: "{}",
 		}
 		id, err := db.Model(user).Insert(user)
 		if err != nil {
@@ -135,13 +138,12 @@ func TestMySQLIntegration(t *testing.T) {
 		var users []User
 		for i := 0; i < 5; i++ {
 			users = append(users, User{
-				Name:  fmt.Sprintf("%s%d", prefix, i+1),
-				Email: fmt.Sprintf("%s%d@example.com", prefix, i+1),
-				Age:   20 + i,
-				// CreatedAt/UpdatedAt 由 auto_time/auto_update 在单条 Insert 场景自动填充，
-				// 这里批量插入时我们手动给一个合法时间，避免 MySQL 拒绝 0000-00-00。
-				CreatedAt: time.Now(),
-				UpdatedAt: time.Now(),
+				Name:        fmt.Sprintf("%s%d", prefix, i+1),
+				Email:       fmt.Sprintf("%s%d@example.com", prefix, i+1),
+				Age:         20 + i,
+				CreatedAt:   time.Now(),
+				UpdatedAt:   time.Now(),
+				Preferences: "{}",
 			})
 		}
 
@@ -194,9 +196,10 @@ func TestMySQLIntegration(t *testing.T) {
 		commitEmail := fmt.Sprintf("tx_commit_%d@example.com", time.Now().UnixNano())
 		err := db.Transaction(func(tx *core.Tx) error {
 			_, err := tx.Model(&User{}).Insert(&User{
-				Name:  "TxCommitUser",
-				Email: commitEmail,
-				Age:   40,
+				Name:        "TxCommitUser",
+				Email:       commitEmail,
+				Age:         30,
+				Preferences: "{}",
 			})
 			return err
 		})
@@ -215,9 +218,10 @@ func TestMySQLIntegration(t *testing.T) {
 		rollbackEmail := fmt.Sprintf("tx_rollback_%d@example.com", time.Now().UnixNano())
 		err = db.Transaction(func(tx *core.Tx) error {
 			_, err := tx.Model(&User{}).Insert(&User{
-				Name:  "TxRollbackUser",
-				Email: rollbackEmail,
-				Age:   41,
+				Name:        "TxRollbackUser",
+				Email:       rollbackEmail,
+				Age:         41,
+				Preferences: "{}",
 			})
 			if err != nil {
 				return err

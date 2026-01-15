@@ -12,12 +12,24 @@ import (
 )
 
 type User struct {
-	ID        int64     `jorm:"pk auto"`
-	Name      string    `jorm:"size:100 notnull"`
-	Email     string    `jorm:"size:100 unique"`
-	Age       int       `jorm:"default:0"`
-	CreatedAt time.Time `jorm:"auto_time"`
-	UpdatedAt time.Time `jorm:"auto_update"`
+	ID          int64      `jorm:"pk auto"`
+	Name        string     `jorm:"size:100 notnull"`
+	Email       string     `jorm:"size:100 unique"`
+	Age         int        `jorm:"default:0"`
+	IsAdmin     bool       `jorm:"type:boolean"`
+	Profile     string     `jorm:"type:text"`
+	Avatar      []byte     `jorm:"type:blob"`
+	Score       float64    `jorm:"type:decimal(10,2)"`
+	Status      int8       `jorm:"type:tinyint"`
+	LogCount    int16      `jorm:"type:smallint"`
+	MediumInt   int32      `jorm:"type:mediumint"`
+	VisitCount  int64      `jorm:"type:bigint"`
+	BirthDate   *time.Time `jorm:"type:date"`
+	LastVisitAt *time.Time `jorm:"type:datetime"`
+	LastLogin   *time.Time `jorm:"type:timestamp"`
+	Preferences string     `jorm:"type:json"`
+	CreatedAt   time.Time  `jorm:"auto_time"`
+	UpdatedAt   time.Time  `jorm:"auto_update"`
 }
 
 type Order struct {
@@ -693,6 +705,68 @@ func TestIntegration(t *testing.T) {
 			if u.Name != expectedName {
 				t.Errorf("Row %d: Expected name %s, got %s", i, expectedName, u.Name)
 			}
+		}
+	})
+
+	t.Run("FullTypes", func(t *testing.T) {
+		db, cleanup := setupTestDB(t)
+		defer cleanup()
+
+		now := time.Now()
+		birthDate := now.AddDate(-20, 0, 0)
+		lastVisit := now.Add(-1 * time.Hour)
+		lastLogin := now.Add(-24 * time.Hour)
+
+		user := &User{
+			Name:        "FullTypeUser",
+			Email:       "fulltype@example.com",
+			Age:         30,
+			IsAdmin:     true,
+			Profile:     "User Profile Text",
+			Avatar:      []byte("User Avatar Blob"),
+			Score:       99.99,
+			Status:      1,
+			LogCount:    100,
+			MediumInt:   50000,
+			VisitCount:  1000000,
+			BirthDate:   &birthDate,
+			LastVisitAt: &lastVisit,
+			LastLogin:   &lastLogin,
+			Preferences: `{"theme":"dark"}`,
+		}
+
+		id, err := db.Model(user).Insert(user)
+		if err != nil {
+			t.Fatalf("Insert failed: %v", err)
+		}
+
+		var got User
+		err = db.Model(&User{}).Where("id = ?", id).First(&got)
+		if err != nil {
+			t.Fatalf("Find failed: %v", err)
+		}
+
+		if got.Name != user.Name {
+			t.Errorf("Expected Name %s, got %s", user.Name, got.Name)
+		}
+		if got.IsAdmin != user.IsAdmin {
+			t.Errorf("Expected IsAdmin %v, got %v", user.IsAdmin, got.IsAdmin)
+		}
+		if string(got.Avatar) != string(user.Avatar) {
+			t.Errorf("Expected Avatar %s, got %s", user.Avatar, got.Avatar)
+		}
+		if got.Score != user.Score {
+			t.Errorf("Expected Score %f, got %f", user.Score, got.Score)
+		}
+		if got.MediumInt != user.MediumInt {
+			t.Errorf("Expected MediumInt %d, got %d", user.MediumInt, got.MediumInt)
+		}
+		if got.Preferences != user.Preferences {
+			t.Errorf("Expected Preferences %s, got %s", user.Preferences, got.Preferences)
+		}
+		// Time comparison might be tricky due to precision, so skipping exact time check or use loose check
+		if got.BirthDate == nil {
+			t.Error("Expected BirthDate to be not nil")
 		}
 	})
 }

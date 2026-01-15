@@ -31,6 +31,10 @@ func (d *postgres) DataTypeOf(typ reflect.Type) string {
 		return "double precision"
 	case reflect.String:
 		return "varchar(255)"
+	case reflect.Slice:
+		if typ.Elem().Kind() == reflect.Uint8 {
+			return "bytea"
+		}
 	case reflect.Struct:
 		if typ.Name() == "Time" {
 			return "timestamp with time zone"
@@ -61,13 +65,17 @@ func (d *postgres) InsertSQL(table string, columns []string) (string, []any) {
 func (d *postgres) CreateTableSQL(m *model.Model) (string, []any) {
 	var columns []string
 	for _, field := range m.Fields {
-		column := fmt.Sprintf("%s %s", d.Quote(field.Column), d.DataTypeOf(field.Type))
+		sqlType := field.SQLType
+		if sqlType == "" {
+			sqlType = d.DataTypeOf(field.Type)
+		}
+		column := fmt.Sprintf("%s %s", d.Quote(field.Column), sqlType)
 		if field.IsPK {
 			column += " PRIMARY KEY"
 		}
 		if field.IsAuto {
 			// PostgreSQL uses SERIAL for auto-incrementing integer columns
-			if strings.Contains(d.DataTypeOf(field.Type), "integer") {
+			if strings.Contains(sqlType, "integer") {
 				column = fmt.Sprintf("%s SERIAL", d.Quote(field.Column))
 			} else {
 				column += " GENERATED ALWAYS AS IDENTITY"

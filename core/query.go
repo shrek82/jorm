@@ -637,6 +637,11 @@ func getModelValues(m *model.Model, value any, update bool) ([]string, []any) {
 		fVal := field.Accessor(val)
 		if !update && field.AutoTime && fVal.CanSet() {
 			fVal.Set(reflect.ValueOf(now))
+		} else if !update && fVal.CanSet() && field.Type.String() == "time.Time" && fVal.IsZero() {
+			// Auto-fill time.Time fields that are zero on insert, if not explicitly AutoTime
+			// This helps with MySQL 0000-00-00 error for non-nullable datetime columns
+			// But only if it's not a pointer (pointers can be nil)
+			fVal.Set(reflect.ValueOf(now))
 		}
 		if field.AutoUpdate && fVal.CanSet() {
 			fVal.Set(reflect.ValueOf(now))
@@ -721,6 +726,9 @@ func (q *Query) BatchInsert(values any) (int64, error) {
 			}
 			fVal := val.Field(field.Index)
 			if (field.AutoTime || field.AutoUpdate) && fVal.CanSet() {
+				fVal.Set(reflect.ValueOf(now))
+			} else if fVal.CanSet() && field.Type.String() == "time.Time" && fVal.IsZero() {
+				// Auto-fill time.Time fields that are zero on insert for BatchInsert as well
 				fVal.Set(reflect.ValueOf(now))
 			}
 			args = append(args, fVal.Interface())

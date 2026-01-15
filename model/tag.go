@@ -23,6 +23,7 @@ type Tag struct {
 	JoinTable    string
 	JoinFK       string
 	JoinRef      string
+	Type         string
 }
 
 // ParseTag parses the "jorm" tag string
@@ -32,10 +33,29 @@ func ParseTag(tagStr string) *Tag {
 		return tag
 	}
 
-	// Support space, semicolon and comma as separators
-	tagStr = strings.ReplaceAll(tagStr, ";", " ")
-	tagStr = strings.ReplaceAll(tagStr, ",", " ")
-	parts := strings.Split(tagStr, " ")
+	// Support space, semicolon, comma as separators (but keep comma in parens)
+	var sb strings.Builder
+	inParen := false
+	for _, r := range tagStr {
+		switch r {
+		case '(':
+			inParen = true
+			sb.WriteRune(r)
+		case ')':
+			inParen = false
+			sb.WriteRune(r)
+		case ';', ',':
+			if inParen {
+				sb.WriteRune(r)
+			} else {
+				sb.WriteRune(' ')
+			}
+		default:
+			sb.WriteRune(r)
+		}
+	}
+	tagStr = sb.String()
+	parts := strings.Fields(tagStr) // Use Fields to split by whitespace and ignore empty strings
 
 	for _, part := range parts {
 		part = strings.TrimSpace(part)
@@ -99,8 +119,17 @@ func ParseTag(tagStr string) *Tag {
 			tag.AutoTime = true
 		case "auto_update":
 			tag.AutoUpdate = true
-		case "relation":
-			tag.RelationType = strings.TrimSpace(subParts[0])
+		case "type":
+			tag.Type = strings.TrimSpace(subParts[0])
+		case "many2many", "many_to_many":
+			tag.RelationType = "many_to_many"
+			if val != "" {
+				tag.JoinTable = val
+			}
+		case "has_one", "has_many", "belongs_to":
+			tag.RelationType = key
+		case "foreignkey":
+			tag.ForeignKey = strings.TrimSpace(subParts[0])
 		case "references":
 			tag.References = strings.TrimSpace(subParts[0])
 		case "join_table":
@@ -109,9 +138,8 @@ func ParseTag(tagStr string) *Tag {
 			tag.JoinFK = strings.TrimSpace(subParts[0])
 		case "join_ref":
 			tag.JoinRef = strings.TrimSpace(subParts[0])
-		case "many_many":
-			tag.RelationType = "many_to_many"
-			tag.JoinTable = strings.TrimSpace(subParts[0])
+		case "relation":
+			tag.RelationType = strings.TrimSpace(subParts[0])
 		}
 	}
 	return tag

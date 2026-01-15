@@ -241,7 +241,7 @@ func parseRelationType(relationType string, typ reflect.Type, tag *Tag) (Relatio
 			return RelationBelongsTo, nil
 		case "has_one":
 			return RelationHasOne, nil
-		case "many_to_many":
+		case "many_to_many", "many2many":
 			return RelationManyToMany, nil
 		default:
 			return 0, fmt.Errorf("unknown relation type: %s", relationType)

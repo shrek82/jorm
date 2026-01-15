@@ -116,7 +116,11 @@ func (m *Model) parseFields(typ reflect.Type, baseIndex []int) error {
 		}
 
 		if structField.Type.Kind() == reflect.Slice || structField.Type.Kind() == reflect.Map {
-			continue
+			if structField.Type.Kind() == reflect.Slice && structField.Type.Elem().Kind() == reflect.Uint8 {
+				// Allow []byte for blob/binary
+			} else {
+				continue
+			}
 		}
 
 		if structField.Type.Kind() == reflect.Ptr {
@@ -151,6 +155,7 @@ func (m *Model) parseFields(typ reflect.Type, baseIndex []int) error {
 			AutoTime:   tag.AutoTime,
 			AutoUpdate: tag.AutoUpdate,
 			IsUnique:   tag.Unique,
+			SQLType:    tag.Type,
 			Tag:        tagStr,
 		}
 		field.Accessor = m.createAccessor(field.NestedIdx)

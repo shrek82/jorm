@@ -542,9 +542,6 @@ func (e *preloadExecutor) mapHasRelation(slice reflect.Value, relation *model.Re
 		if relation.Type == model.RelationHasOne {
 			if len(items) > 0 {
 				if field.Kind() == reflect.Ptr {
-					if !field.IsNil() && !field.IsZero() {
-						continue
-					}
 					field.Set(reflect.ValueOf(items[0]))
 				} else {
 					field.Set(reflect.ValueOf(items[0]).Elem())

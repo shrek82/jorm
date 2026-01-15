@@ -17,7 +17,7 @@ type PreloadUser struct {
 	UpdatedAt time.Time       `jorm:"auto_update"`
 	Orders    []PreloadOrder  `jorm:"fk:UserID;relation:has_many"`
 	Profile   *PreloadProfile `jorm:"fk:UserID;relation:has_one"`
-	Roles     []PreloadRole   `jorm:"many_many:preload_user_role;join_fk:user_id;join_ref:role_id"`
+	Roles     []PreloadRole   `jorm:"many_to_many:preload_user_role;join_fk:user_id;join_ref:role_id"`
 }
 
 type PreloadOrder struct {
@@ -28,7 +28,7 @@ type PreloadOrder struct {
 	CreatedAt time.Time        `jorm:"auto_time"`
 	UpdatedAt time.Time        `jorm:"auto_update"`
 	User      *PreloadUser     `jorm:"fk:UserID;relation:belongs_to"`
-	Products  []PreloadProduct `jorm:"many_many:preload_order_product;join_fk:order_id;join_ref:product_id"`
+	Products  []PreloadProduct `jorm:"many_to_many:preload_order_product;join_fk:order_id;join_ref:product_id"`
 }
 
 type PreloadProduct struct {
