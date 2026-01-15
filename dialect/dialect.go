@@ -57,4 +57,10 @@ func init() {
 
 	// Register SQLite dialect
 	Register("sqlite3", &sqlite3{})
+
+	// Register SQL Server dialect
+	Register("sqlserver", &sqlserver{})
+
+	// Register Oracle dialect
+	Register("oracle", &oracle{})
 }

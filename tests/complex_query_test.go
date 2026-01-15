@@ -4,8 +4,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/shrek82/jorm/core"
 	_ "github.com/mattn/go-sqlite3"
+	"github.com/shrek82/jorm/core"
 )
 
 type ComplexUser struct {

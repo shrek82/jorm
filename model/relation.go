@@ -48,7 +48,7 @@ var (
 
 func GetRelation(m *Model, name string) (*Relation, error) {
 	key := m.TableName + "." + name
-	
+
 	for {
 		version := relationCacheVersion.Load()
 
