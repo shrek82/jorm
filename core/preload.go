@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"reflect"
 	"sync"
+	"time"
 
 	"github.com/shrek82/jorm/model"
 )
@@ -651,7 +652,13 @@ func (e *preloadExecutor) scanRow(rows *sql.Rows, dest any) error {
 	values := make([]any, len(columns))
 	for i, field := range plan.fields {
 		if field != nil {
-			values[i] = reflect.New(field.Type).Interface()
+			if field.Type == timeType {
+				values[i] = &TimeScanner{}
+			} else if field.Type == timePtrType {
+				values[i] = &TimeScanner{}
+			} else {
+				values[i] = reflect.New(field.Type).Interface()
+			}
 		} else {
 			var ignore any
 			values[i] = &ignore
@@ -665,7 +672,25 @@ func (e *preloadExecutor) scanRow(rows *sql.Rows, dest any) error {
 	destValue := reflect.ValueOf(dest).Elem()
 	for i, field := range plan.fields {
 		if field != nil {
-			val := reflect.ValueOf(values[i]).Elem()
+			var val reflect.Value
+			if ts, ok := values[i].(*TimeScanner); ok {
+				if field.Type == timeType {
+					if ts.Valid {
+						val = reflect.ValueOf(ts.Value)
+					} else {
+						val = reflect.ValueOf(time.Time{})
+					}
+				} else { // *time.Time
+					if ts.Valid {
+						t := ts.Value
+						val = reflect.ValueOf(&t)
+					} else {
+						val = reflect.Zero(field.Type)
+					}
+				}
+			} else {
+				val = reflect.ValueOf(values[i]).Elem()
+			}
 			setFieldValue(destValue, field, val, plan, i)
 		}
 	}

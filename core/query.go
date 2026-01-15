@@ -505,6 +505,71 @@ func (q *Query) scanRow(rows *sql.Rows, dest any) error {
 	return nil
 }
 
+var (
+	timeType    = reflect.TypeOf(time.Time{})
+	timePtrType = reflect.TypeOf((*time.Time)(nil))
+)
+
+// TimeScanner acts as a scanner for time.Time fields.
+// It handles various formats including strings, bytes, and native time.Time.
+type TimeScanner struct {
+	Value time.Time
+	Valid bool
+}
+
+// Scan implements the sql.Scanner interface.
+func (s *TimeScanner) Scan(value any) error {
+	if value == nil {
+		s.Valid = false
+		return nil
+	}
+
+	switch v := value.(type) {
+	case time.Time:
+		s.Value = v
+		s.Valid = true
+		return nil
+	case []byte:
+		return s.parse(string(v))
+	case string:
+		return s.parse(v)
+	default:
+		return fmt.Errorf("cannot scan type %T into time.Time", value)
+	}
+}
+
+func (s *TimeScanner) parse(v string) error {
+	if v == "" || v == "0000-00-00 00:00:00" || v == "0000-00-00" {
+		s.Valid = false
+		return nil
+	}
+
+	layouts := []string{
+		"2006-01-02 15:04:05",
+		time.RFC3339,
+		"2006-01-02",
+		time.RFC3339Nano,
+	}
+
+	for _, layout := range layouts {
+		if t, e := time.ParseInLocation(layout, v, time.Local); e == nil {
+			s.Value = t
+			s.Valid = true
+			return nil
+		}
+	}
+	// Fallback to UTC if Local fails or just try Parse
+	for _, layout := range layouts {
+		if t, e := time.Parse(layout, v); e == nil {
+			s.Value = t
+			s.Valid = true
+			return nil
+		}
+	}
+
+	return fmt.Errorf("failed to parse time: %s", v)
+}
+
 func (q *Query) scanRowWithPlan(rows *sql.Rows, dest any, plan *scanPlan) error {
 	buf := scanBufferPool.Get().(*scanBuffer)
 	if cap(buf.values) < len(plan.fields) {
@@ -516,7 +581,13 @@ func (q *Query) scanRowWithPlan(rows *sql.Rows, dest any, plan *scanPlan) error 
 
 	for i, field := range plan.fields {
 		if field != nil {
-			buf.values[i] = reflect.New(field.Type).Interface()
+			if field.Type == timeType {
+				buf.values[i] = &TimeScanner{}
+			} else if field.Type == timePtrType {
+				buf.values[i] = &TimeScanner{}
+			} else {
+				buf.values[i] = reflect.New(field.Type).Interface()
+			}
 		} else {
 			var ignore any
 			buf.values[i] = &ignore
@@ -539,7 +610,25 @@ func (q *Query) scanRowWithPlan(rows *sql.Rows, dest any, plan *scanPlan) error 
 
 	for i, field := range plan.fields {
 		if field != nil {
-			val := reflect.ValueOf(buf.values[i]).Elem()
+			var val reflect.Value
+			if ts, ok := buf.values[i].(*TimeScanner); ok {
+				if field.Type == timeType {
+					if ts.Valid {
+						val = reflect.ValueOf(ts.Value)
+					} else {
+						val = reflect.ValueOf(time.Time{})
+					}
+				} else { // *time.Time
+					if ts.Valid {
+						t := ts.Value
+						val = reflect.ValueOf(&t)
+					} else {
+						val = reflect.Zero(field.Type)
+					}
+				}
+			} else {
+				val = reflect.ValueOf(buf.values[i]).Elem()
+			}
 			setFieldValue(destValue, field, val, plan, i)
 		}
 	}
