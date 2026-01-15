@@ -19,6 +19,7 @@ func TestQueryStructuredLogging(t *testing.T) {
 
 	buf := &bytes.Buffer{}
 	l := logger.NewStdLogger()
+	l.SetLevel(logger.LogLevelInfo)
 	l.SetOutput(buf)
 	l.SetFormat(logger.LogFormatJSON)
 	db.SetLogger(l)

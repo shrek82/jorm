@@ -101,11 +101,12 @@ type stdLogger struct {
 	baseLogger
 }
 
-// NewStdLogger creates a new standard logger
+// NewStdLogger creates a new standard logger.
+// By default, it is set to LogLevelError to only show critical issues.
 func NewStdLogger() Logger {
 	return &stdLogger{
 		baseLogger: baseLogger{
-			level:        LogLevelInfo,
+			level:        LogLevelError,
 			format:       LogFormatText,
 			writer:       os.Stdout,
 			levelWriters: make(map[LogLevel]io.Writer),
@@ -126,33 +127,33 @@ func (l *stdLogger) WithFields(fields map[string]any) Logger {
 
 func (l *stdLogger) Info(format string, args ...any) {
 	if l.level >= LogLevelInfo {
-		l.log("INFO", format, args...)
+		l.emit("INFO", format, args...)
 	}
 }
 
 func (l *stdLogger) Warn(format string, args ...any) {
 	if l.level >= LogLevelWarn {
-		l.log("WARN", format, args...)
+		l.emit("WARN", format, args...)
 	}
 }
 
 func (l *stdLogger) Error(format string, args ...any) {
 	if l.level >= LogLevelError {
-		l.log("ERROR", format, args...)
+		l.emit("ERROR", format, args...)
 	}
 }
 
 func (l *stdLogger) SQL(sql string, duration time.Duration, args ...any) {
 	if l.level >= LogLevelInfo {
 		if l.format == LogFormatJSON {
-			l.log("SQL", "", "sql", sql, "duration", duration.String(), "args", args)
+			l.emit("SQL", "", "sql", sql, "duration", duration.String(), "args", args)
 		} else {
-			l.log("SQL", "[%v] %s | args: %v", duration, sql, args)
+			l.emit("SQL", "[%v] %s | args: %v", duration, sql, args)
 		}
 	}
 }
 
-func (l *stdLogger) log(level string, format string, args ...any) {
+func (l *stdLogger) emit(level string, format string, args ...any) {
 	now := time.Now()
 	msgLevel := l.parseLevel(level)
 

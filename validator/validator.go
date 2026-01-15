@@ -66,7 +66,7 @@ func (r *BaseRule) ShouldValidate(value any) bool {
 // FormatError returns the custom message if set, otherwise returns the default error.
 func (r *BaseRule) FormatError(defaultErr error) error {
 	if r.msg != "" {
-		return fmt.Errorf(r.msg)
+		return fmt.Errorf("%s", r.msg)
 	}
 	return defaultErr
 }
