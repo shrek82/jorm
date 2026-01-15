@@ -5,7 +5,18 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
+)
+
+const (
+	ansiReset   = "\033[0m"
+	ansiRed     = "\033[31m"
+	ansiGreen   = "\033[32m"
+	ansiYellow  = "\033[33m"
+	ansiBlue    = "\033[34m"
+	ansiMagenta = "\033[35m"
+	ansiCyan    = "\033[36m"
 )
 
 // LogLevel defines the severity of the log
@@ -158,10 +169,32 @@ func (l *stdLogger) log(level string, format string, args ...any) {
 		if format != "" {
 			msg = fmt.Sprintf(format, args...)
 		}
+
+		if level == "SQL" && len(args) >= 2 {
+			if sqlStr, ok := args[1].(string); ok {
+				color := getSQLColor(sqlStr)
+				msg = fmt.Sprintf("%s%s%s", color, msg, ansiReset)
+			}
+		}
+
 		fieldStr := ""
 		if len(l.fields) > 0 {
 			fieldStr = fmt.Sprintf(" fields: %v", l.fields)
 		}
 		fmt.Fprintf(l.writer, "[JORM] %s %s: %s%s\n", now.Format("2006-01-02 15:04:05"), level, msg, fieldStr)
+	}
+}
+
+func getSQLColor(sqlStr string) string {
+	s := strings.TrimSpace(strings.ToUpper(sqlStr))
+	switch {
+	case strings.HasPrefix(s, "SELECT"):
+		return ansiYellow
+	case strings.HasPrefix(s, "INSERT"), strings.HasPrefix(s, "UPDATE"):
+		return ansiGreen
+	case strings.HasPrefix(s, "DELETE"):
+		return ansiRed
+	default:
+		return ansiCyan
 	}
 }
