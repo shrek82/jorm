@@ -18,7 +18,6 @@ type Builder interface {
 	Where(cond string, args ...any) Builder
 	OrWhere(cond string, args ...any) Builder
 	WhereIn(column string, values any) Builder
-	Join(table, joinType, on string) Builder
 	Joins(query string, args ...any) Builder
 	OrderBy(columns ...string) Builder
 	Limit(n int) Builder
@@ -144,17 +143,6 @@ func (b *sqlBuilder) WhereIn(column string, values any) Builder {
 	}
 	cond := column + " IN (" + strings.Join(placeholders, ", ") + ")"
 	return b.Where(cond, args...)
-}
-
-func (b *sqlBuilder) Join(table, joinType, on string) Builder {
-	jt := strings.TrimSpace(joinType)
-	if jt == "" {
-		jt = "INNER"
-	}
-	quotedTable := b.dialect.Quote(table)
-	clause := jt + " JOIN " + quotedTable + " ON " + on
-	b.joins = append(b.joins, clause)
-	return b
 }
 
 func (b *sqlBuilder) Joins(query string, args ...any) Builder {

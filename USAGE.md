@@ -230,21 +230,28 @@ total, _ := db.Model(&User{}).Count()
 pages := (total + pageSize - 1) / pageSize
 ```
 
-### JOIN操作
+#### Joins
+
+jorm provides the `Joins` method for JOIN operations. It supports raw SQL and arguments.
 
 ```go
-// 简单JOIN查询
-type OrderWithUser struct {
-    Order
-    UserName string `jorm:"column:user_name"`
-}
-
-var orders []OrderWithUser
+// Using Joins
+var results []OrderWithUser
 err := db.Model(&Order{}).
     Select("order.*", "user.name as user_name").
-    Join("user", "user.id = order.user_id").
-    Where("order.status = ?", "completed").
-    Find(&orders)
+    Joins("INNER JOIN user ON user.id = order.user_id").
+    Find(&results)
+
+// Joins with arguments
+err := db.Model(&Order{}).
+    Joins("INNER JOIN user ON user.id = order.user_id AND user.age > ?", 18).
+    Find(&results)
+
+// Multiple joins
+err := db.Model(&Order{}).
+    Joins("LEFT JOIN user ON user.id = order.user_id").
+    Joins("LEFT JOIN address ON address.user_id = user.id").
+    Find(&results)
 ```
 
 ### 选择字段

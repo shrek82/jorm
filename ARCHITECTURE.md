@@ -125,9 +125,9 @@ type Builder interface {
     WhereIn(column string, values any) Builder
     
     // 查询构建
-    Select(columns ...string) Builder
-    Join(table, on, joinType string) Builder
-    OrderBy(column string) Builder
+     Select(columns ...string) Builder
+     Joins(query string, args ...any) Builder
+     OrderBy(column string) Builder
     Limit(n int) Builder
     Offset(n int) Builder
     

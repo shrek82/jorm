@@ -131,11 +131,6 @@ func (q *Query) WhereIn(column string, values any) *Query {
 	return q
 }
 
-func (q *Query) Join(table, joinType, on string) *Query {
-	q.builder.Join(table, joinType, on)
-	return q
-}
-
 // Limit sets the LIMIT clause.
 func (q *Query) Limit(n int) *Query {
 	q.builder.Limit(n)
