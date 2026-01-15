@@ -341,12 +341,19 @@ func (q *Query) Scan(dest any) error {
 	return q.queryRows(q.rawSQL, q.rawArgs, dest)
 }
 
+func (q *Query) handleError(err error) error {
+	if err != nil && q.db != nil {
+		q.db.reportError(err)
+	}
+	return err
+}
+
 func (q *Query) queryRow(sqlStr string, args []any, dest any) error {
 	start := time.Now()
 	rows, err := q.executor.QueryContext(q.ctx, sqlStr, args...)
 	q.logSQL(sqlStr, time.Since(start), args...)
 	if err != nil {
-		return fmt.Errorf("query execution failed: %w", err)
+		return q.handleError(fmt.Errorf("query execution failed: %w", err))
 	}
 	defer rows.Close()
 
@@ -356,24 +363,29 @@ func (q *Query) queryRow(sqlStr string, args []any, dest any) error {
 
 	columns, err := rows.Columns()
 	if err != nil {
-		return fmt.Errorf("failed to get columns: %w", err)
+		return q.handleError(fmt.Errorf("failed to get columns: %w", err))
 	}
 
 	m, err := model.GetModel(dest)
 	if err != nil {
-		return fmt.Errorf("failed to get model metadata: %w", err)
+		return q.handleError(fmt.Errorf("failed to get model metadata: %w", err))
 	}
 
 	plan := getScanPlan(m, columns)
 
 	if err := q.scanRowWithPlan(rows, dest, plan); err != nil {
-		return fmt.Errorf("row scan failed: %w", err)
+		return q.handleError(fmt.Errorf("row scan failed: %w", err))
 	}
 
 	// AfterFind hook
 	if h, ok := dest.(AfterFinder); ok {
-		return h.AfterFind()
+		if err := h.AfterFind(); err != nil {
+			return q.handleError(err)
+		}
 	}
+
+	// Success! Clear cooldown if any
+	q.handleError(nil)
 	return nil
 }
 
@@ -382,7 +394,7 @@ func (q *Query) queryRows(sqlStr string, args []any, dest any) error {
 	rows, err := q.executor.QueryContext(q.ctx, sqlStr, args...)
 	q.logSQL(sqlStr, time.Since(start), args...)
 	if err != nil {
-		return fmt.Errorf("query execution failed: %w", err)
+		return q.handleError(fmt.Errorf("query execution failed: %w", err))
 	}
 	defer rows.Close()
 
@@ -396,7 +408,7 @@ func (q *Query) queryRows(sqlStr string, args []any, dest any) error {
 
 	columns, err := rows.Columns()
 	if err != nil {
-		return fmt.Errorf("failed to get columns: %w", err)
+		return q.handleError(fmt.Errorf("failed to get columns: %w", err))
 	}
 
 	var m *model.Model
@@ -409,14 +421,14 @@ func (q *Query) queryRows(sqlStr string, args []any, dest any) error {
 		if plan == nil {
 			m, err = model.GetModel(itemInterface)
 			if err != nil {
-				return fmt.Errorf("failed to get model metadata: %w", err)
+				return q.handleError(fmt.Errorf("failed to get model metadata: %w", err))
 			}
 			plan = getScanPlan(m, columns)
 		}
 
 		// Pass reflect.Value directly to avoid repeated reflect.ValueOf
 		if err := q.scanRowWithPlan(rows, item.Elem(), plan); err != nil {
-			return fmt.Errorf("row scan failed: %w", err)
+			return q.handleError(fmt.Errorf("row scan failed: %w", err))
 		}
 
 		// AfterFind hook
@@ -549,12 +561,12 @@ func (q *Query) Insert(value any) (int64, error) {
 	res, err := q.executor.ExecContext(q.ctx, sqlStr, append(vals, args...)...)
 	q.logSQL(sqlStr, time.Since(start), append(vals, args...)...)
 	if err != nil {
-		return 0, fmt.Errorf("Insert execution failed: %w", err)
+		return 0, q.handleError(fmt.Errorf("Insert execution failed: %w", err))
 	}
 
 	id, err := res.LastInsertId()
 	if err != nil {
-		return 0, fmt.Errorf("failed to get last insert id: %w", err)
+		return 0, q.handleError(fmt.Errorf("failed to get last insert id: %w", err))
 	}
 
 	if m.PKField != nil && m.PKField.IsAuto {
@@ -563,10 +575,11 @@ func (q *Query) Insert(value any) (int64, error) {
 
 	if h, ok := value.(AfterInserter); ok {
 		if err := h.AfterInsert(id); err != nil {
-			return 0, fmt.Errorf("AfterInsert hook failed: %w", err)
+			return 0, q.handleError(fmt.Errorf("AfterInsert hook failed: %w", err))
 		}
 	}
 
+	q.handleError(nil)
 	return id, nil
 }
 
@@ -683,7 +696,7 @@ func (q *Query) BatchInsert(values any) (int64, error) {
 	res, err := q.executor.ExecContext(q.ctx, sqlStr, args...)
 	q.logSQL(sqlStr, time.Since(start), args...)
 	if err != nil {
-		return 0, err
+		return 0, q.handleError(err)
 	}
 
 	totalAffected, _ := res.RowsAffected()
@@ -696,11 +709,12 @@ func (q *Query) BatchInsert(values any) (int64, error) {
 			// Usually returns the first ID of the batch
 			id, _ := res.LastInsertId()
 			if err := h.AfterInsert(id + int64(i)); err != nil {
-				return totalAffected, err
+				return totalAffected, q.handleError(err)
 			}
 		}
 	}
 
+	q.handleError(nil)
 	return totalAffected, nil
 }
 
@@ -747,22 +761,23 @@ func (q *Query) Update(value any) (int64, error) {
 	res, err := q.executor.ExecContext(q.ctx, sqlStr, args...)
 	q.logSQL(sqlStr, time.Since(start), args...)
 	if err != nil {
-		return 0, fmt.Errorf("Update execution failed: %w", err)
+		return 0, q.handleError(fmt.Errorf("Update execution failed: %w", err))
 	}
 
 	rows, err := res.RowsAffected()
 	if err != nil {
-		return 0, fmt.Errorf("failed to get rows affected: %w", err)
+		return 0, q.handleError(fmt.Errorf("failed to get rows affected: %w", err))
 	}
 
 	if reflect.TypeOf(value).Kind() != reflect.Map {
 		if h, ok := value.(AfterUpdater); ok {
 			if err := h.AfterUpdate(); err != nil {
-				return 0, fmt.Errorf("AfterUpdate hook failed: %w", err)
+				return 0, q.handleError(fmt.Errorf("AfterUpdate hook failed: %w", err))
 			}
 		}
 	}
 
+	q.handleError(nil)
 	return rows, nil
 }
 
@@ -809,21 +824,22 @@ func (q *Query) Delete(value ...any) (int64, error) {
 	res, err := q.executor.ExecContext(q.ctx, sqlStr, args...)
 	q.logSQL(sqlStr, time.Since(start), args...)
 	if err != nil {
-		return 0, fmt.Errorf("Delete execution failed: %w", err)
+		return 0, q.handleError(fmt.Errorf("Delete execution failed: %w", err))
 	}
 
 	rows, err := res.RowsAffected()
 	if err != nil {
-		return 0, fmt.Errorf("failed to get rows affected: %w", err)
+		return 0, q.handleError(fmt.Errorf("failed to get rows affected: %w", err))
 	}
 
 	if len(value) > 0 {
 		if h, ok := value[0].(AfterDeleter); ok {
 			if err := h.AfterDelete(); err != nil {
-				return 0, fmt.Errorf("AfterDelete hook failed: %w", err)
+				return 0, q.handleError(fmt.Errorf("AfterDelete hook failed: %w", err))
 			}
 		}
 	}
 
+	q.handleError(nil)
 	return rows, nil
 }
