@@ -113,7 +113,7 @@ func (r Rules) Validate(value any) error {
 	errors := make(ValidationErrors)
 
 	for fieldName, rules := range r {
-		field := rv.FieldByName(fieldName)
+		field := findField(rv, fieldName)
 		if !field.IsValid() {
 			continue
 		}
@@ -130,6 +130,49 @@ func (r Rules) Validate(value any) error {
 		return errors
 	}
 	return nil
+}
+
+// findField attempts to find a struct field by name or by jorm column tag.
+func findField(rv reflect.Value, name string) reflect.Value {
+	// 1. Try exact match (Go field name)
+	field := rv.FieldByName(name)
+	if field.IsValid() {
+		return field
+	}
+
+	// 2. Try case-insensitive match and jorm column tag
+	rt := rv.Type()
+	nameLower := strings.ToLower(name)
+	for i := 0; i < rt.NumField(); i++ {
+		sf := rt.Field(i)
+		if !sf.IsExported() {
+			continue
+		}
+
+		// Check jorm:"column:..." tag
+		tag := sf.Tag.Get("jorm")
+		if tag != "" {
+			parts := strings.Split(tag, ",")
+			for _, p := range parts {
+				p = strings.TrimSpace(p)
+				if strings.HasPrefix(p, "column:") {
+					col := strings.TrimPrefix(p, "column:")
+					if strings.EqualFold(col, name) {
+						return rv.Field(i)
+					}
+				} else if strings.EqualFold(p, name) { // Support simple tag like `jorm:"id"`
+					return rv.Field(i)
+				}
+			}
+		}
+
+		// Check case-insensitive field name
+		if strings.ToLower(sf.Name) == nameLower {
+			return rv.Field(i)
+		}
+	}
+
+	return reflect.Value{}
 }
 
 // Validate is a standalone validation function.

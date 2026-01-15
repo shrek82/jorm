@@ -9,6 +9,7 @@ import (
 	"github.com/shrek82/jorm"
 )
 
+// ValidateUser 测试用的用户模型
 type ValidateUser struct {
 	ID    int64  `jorm:"pk,auto"`
 	Name  string `jorm:"column:name"`
@@ -17,10 +18,12 @@ type ValidateUser struct {
 	Role  string `jorm:"column:role"`
 }
 
+// TableName 指定表名
 func (m *ValidateUser) TableName() string {
 	return "validate_users"
 }
 
+// CommonValidator 返回通用的验证规则
 func (m *ValidateUser) CommonValidator() jorm.Validator {
 	return jorm.Rules{
 		"Name": {
@@ -36,6 +39,7 @@ func (m *ValidateUser) CommonValidator() jorm.Validator {
 	}.Validate
 }
 
+// AdminValidator 返回管理员权限验证函数
 func (m *ValidateUser) AdminValidator() jorm.Validator {
 	return func(value any) error {
 		u := value.(*ValidateUser)
@@ -46,6 +50,7 @@ func (m *ValidateUser) AdminValidator() jorm.Validator {
 	}
 }
 
+// setupValidatorDB 初始化测试数据库
 func setupValidatorDB(t *testing.T) *jorm.DB {
 	dbFile := "validator_test.db"
 	db, err := jorm.Open("sqlite3", dbFile, nil)
@@ -61,15 +66,18 @@ func setupValidatorDB(t *testing.T) *jorm.DB {
 	return db
 }
 
+// teardownValidatorDB 清理测试数据库
 func teardownValidatorDB() {
 	os.Remove("validator_test.db")
 }
 
+// TestValidator 验证器主测试函数
 func TestValidator(t *testing.T) {
 	db := setupValidatorDB(t)
 	defer teardownValidatorDB()
 
 	t.Run("Standalone Validation", func(t *testing.T) {
+		// 测试独立验证功能（不涉及数据库）
 		user := &ValidateUser{Name: "A", Email: "invalid", Age: 10}
 		err := jorm.Validate(user, user.CommonValidator())
 		if err == nil {
@@ -81,6 +89,7 @@ func TestValidator(t *testing.T) {
 			t.Errorf("Expected ValidationErrors, got %T", err)
 		}
 
+		// 验证错误信息是否匹配自定义消息
 		if len(errs["Name"]) == 0 || errs["Name"][0].Error() != "Name too short" {
 			t.Errorf("Unexpected error for Name: %v", errs["Name"])
 		}
@@ -90,6 +99,7 @@ func TestValidator(t *testing.T) {
 	})
 
 	t.Run("InsertWithValidator - Success", func(t *testing.T) {
+		// 测试带验证的插入：成功场景
 		user := &ValidateUser{Name: "Shrek", Email: "shrek@example.com", Age: 25, Role: "admin"}
 		id, err := db.Model(user).InsertWithValidator(user, user.CommonValidator())
 		if err != nil {
@@ -101,6 +111,7 @@ func TestValidator(t *testing.T) {
 	})
 
 	t.Run("InsertWithValidator - Failure", func(t *testing.T) {
+		// 测试带验证的插入：失败场景（违反基础规则）
 		user := &ValidateUser{Name: "", Email: "bad", Age: 5}
 		_, err := db.Model(user).InsertWithValidator(user, user.CommonValidator())
 		if err == nil {
@@ -109,6 +120,7 @@ func TestValidator(t *testing.T) {
 	})
 
 	t.Run("Combination Validator", func(t *testing.T) {
+		// 测试多个验证器组合使用（基础规则 + 业务逻辑验证）
 		user := &ValidateUser{Name: "Bob", Email: "bob@example.com", Age: 30, Role: "guest"}
 		_, err := db.Model(user).InsertWithValidator(user, user.CommonValidator(), user.AdminValidator())
 		if err == nil {
@@ -120,11 +132,12 @@ func TestValidator(t *testing.T) {
 	})
 
 	t.Run("UpdateWithValidator", func(t *testing.T) {
+		// 测试带验证的更新
 		user := &ValidateUser{Name: "Initial", Email: "init@example.com", Age: 20}
 		id, _ := db.Model(user).Insert(user)
 		user.ID = id
 
-		// Valid update
+		// 合法更新
 		user.Name = "Updated Name"
 		affected, err := db.Model(user).Where("id = ?", id).UpdateWithValidator(user, user.CommonValidator())
 		if err != nil {
@@ -134,7 +147,7 @@ func TestValidator(t *testing.T) {
 			t.Error("Expected affected rows > 0")
 		}
 
-		// Invalid update
+		// 非法更新：违反邮箱格式
 		user.Email = "invalid-email"
 		_, err = db.Model(user).Where("id = ?", id).UpdateWithValidator(user, user.CommonValidator())
 		if err == nil {
@@ -143,6 +156,7 @@ func TestValidator(t *testing.T) {
 	})
 
 	t.Run("Extended Format Rules", func(t *testing.T) {
+		// 测试扩展格式校验规则（IP, JSON, UUID, 包含/排除等）
 		type MetaData struct {
 			IP   string
 			JSON string
@@ -156,7 +170,7 @@ func TestValidator(t *testing.T) {
 			"Tags": {jorm.Contains("go"), jorm.Excludes("php")},
 		}
 
-		// Valid data
+		// 合法数据
 		m1 := &MetaData{
 			IP:   "192.168.1.1",
 			JSON: `{"key": "value"}`,
@@ -167,7 +181,7 @@ func TestValidator(t *testing.T) {
 			t.Errorf("Expected nil for valid metadata, got %v", err)
 		}
 
-		// Invalid data
+		// 非法数据：所有字段均违反规则
 		m2 := &MetaData{
 			IP:   "999.999.999.999",
 			JSON: "{invalid-json}",
@@ -185,6 +199,7 @@ func TestValidator(t *testing.T) {
 	})
 
 	t.Run("Optional and When Rules", func(t *testing.T) {
+		// 测试修饰符：Optional (可选) 和 When (条件触发)
 		type WhenUser struct {
 			Status string
 			Reason string
@@ -193,38 +208,36 @@ func TestValidator(t *testing.T) {
 		rules := jorm.Rules{
 			"Age": {jorm.Range(18, 100).Optional()},
 			"Reason": {jorm.Required.When(func(v any) bool {
-				// This is tricky because When(v) receives the value of the field (Reason),
-				// but often we need other fields. For complex cross-field validation,
-				// users should use a custom validator function.
-				// However, let's test the current When implementation.
+				// 当字段值为 "TRIGGER" 时触发必填校验
 				return v != nil && v.(string) == "TRIGGER"
 			})},
 		}
 
-		// Empty Age (0) - should pass because of Optional
+		// Age 为 0 (零值) - 因 Optional 应该通过校验
 		u1 := &ValidateUser{Age: 0}
 		if err := jorm.Validate(u1, rules.Validate); err != nil {
 			t.Errorf("Expected nil for zero age with Optional, got %v", err)
 		}
 
-		// Invalid Age (10) - should fail
+		// Age 为 10 - 不在范围内，应该失败
 		u2 := &ValidateUser{Age: 10}
 		if err := jorm.Validate(u2, rules.Validate); err == nil {
 			t.Error("Expected error for age 10, got nil")
 		}
 
-		// When condition
+		// When 条件不满足：Reason 为空但不是 "TRIGGER"，不触发 Required，应该通过
 		u3 := &WhenUser{Status: "active", Reason: ""}
 		if err := jorm.Validate(u3, rules.Validate); err != nil {
 			t.Errorf("Expected nil for empty reason when condition not met, got %v", err)
 		}
 
+		// When 条件满足：Reason 为 "TRIGGER"，由于不为空，满足 Required，应该通过
 		u4 := &WhenUser{Status: "active", Reason: "TRIGGER"}
 		if err := jorm.Validate(u4, rules.Validate); err != nil {
 			t.Errorf("Expected nil for triggered reason, got %v", err)
 		}
 
-		// Failure case for When
+		// 强制触发失败：自定义 When 条件始终返回 true，但字段值为空
 		rules2 := jorm.Rules{
 			"Reason": {jorm.Required.When(func(v any) bool {
 				return v == nil || v.(string) == ""
@@ -237,6 +250,7 @@ func TestValidator(t *testing.T) {
 	})
 
 	t.Run("All Built-in Rules", func(t *testing.T) {
+		// 测试所有内置规则：Numeric, Alpha, AlphaNumeric, Datetime, In, NoHTML
 		type AllRules struct {
 			Num      string
 			Alpha    string
@@ -255,7 +269,7 @@ func TestValidator(t *testing.T) {
 			"Content":  {jorm.NoHTML},
 		}
 
-		// Valid
+		// 全部合法
 		a1 := &AllRules{
 			Num:      "123",
 			Alpha:    "abc",
@@ -268,7 +282,7 @@ func TestValidator(t *testing.T) {
 			t.Errorf("Expected nil for valid data, got %v", err)
 		}
 
-		// Invalid
+		// 全部非法
 		a2 := &AllRules{
 			Num:      "123a",
 			Alpha:    "abc1",
@@ -288,6 +302,7 @@ func TestValidator(t *testing.T) {
 	})
 
 	t.Run("Multi-Error Collection", func(t *testing.T) {
+		// 测试单个字段的多错误收集
 		type MultiErr struct {
 			Code string
 		}
@@ -298,7 +313,7 @@ func TestValidator(t *testing.T) {
 			},
 		}
 
-		m := &MultiErr{Code: "abc"}
+		m := &MultiErr{Code: "abc"} // 既太短，又不是纯数字
 		err := jorm.Validate(m, rules.Validate)
 		if err == nil {
 			t.Fatal("Expected errors, got nil")
@@ -306,6 +321,37 @@ func TestValidator(t *testing.T) {
 		errs := err.(jorm.ValidationErrors)
 		if len(errs["Code"]) != 2 {
 			t.Errorf("Expected 2 errors for Code, got %d", len(errs["Code"]))
+		}
+	})
+
+	t.Run("Flexible Field Mapping", func(t *testing.T) {
+		// 测试字段名匹配的灵活性：大小写不敏感、支持列名
+		type FlexibleUser struct {
+			UserName string `jorm:"column:user_name"`
+			Age      int    `jorm:"column:user_age"`
+		}
+
+		rules := jorm.Rules{
+			"username":  {jorm.Required},       // 小写匹配
+			"user_name": {jorm.MinLen(5)},      // 列名匹配
+			"User_Age":  {jorm.Range(18, 100)}, // 列名大小写混合匹配
+		}
+
+		u := &FlexibleUser{UserName: "Bob", Age: 10}
+		err := jorm.Validate(u, rules.Validate)
+		if err == nil {
+			t.Fatal("Expected errors, got nil")
+		}
+
+		errs := err.(jorm.ValidationErrors)
+		// "username" 匹配到 UserName，值 "Bob" 满足 Required，无错
+		// "user_name" 匹配到 UserName，值 "Bob" 长度 3 < 5，有错
+		// "User_Age" 匹配到 Age，值 10 < 18，有错
+		if len(errs["user_name"]) == 0 {
+			t.Error("Expected error for user_name (column name match)")
+		}
+		if len(errs["User_Age"]) == 0 {
+			t.Error("Expected error for User_Age (column name match)")
 		}
 	})
 }
