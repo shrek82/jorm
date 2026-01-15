@@ -9,10 +9,17 @@ import (
 
 // Model represents table metadata
 type Model struct {
-	TableName string
-	Fields    []*Field
-	FieldMap  map[string]*Field
-	PKField   *Field
+	TableName    string
+	Fields       []*Field
+	FieldMap     map[string]*Field
+	PKField      *Field
+	Relations    map[string]*Relation
+	OriginalType reflect.Type
+}
+
+// GetRelation retrieves a relation by name
+func (m *Model) GetRelation(name string) (*Relation, error) {
+	return GetRelation(m, name)
 }
 
 var modelCache sync.Map
@@ -42,14 +49,17 @@ func GetModel(value any) (*Model, error) {
 		return nil, err
 	}
 
+	InvalidateRelationCache()
 	modelCache.Store(key, m)
 	return m, nil
 }
 
 func parseModel(typ reflect.Type) (*Model, error) {
 	m := &Model{
-		TableName: camelToSnake(typ.Name()),
-		FieldMap:  make(map[string]*Field),
+		TableName:    camelToSnake(typ.Name()),
+		FieldMap:     make(map[string]*Field),
+		Relations:    make(map[string]*Relation),
+		OriginalType: typ,
 	}
 
 	for i := 0; i < typ.NumField(); i++ {
@@ -59,7 +69,31 @@ func parseModel(typ reflect.Type) (*Model, error) {
 		}
 
 		tagStr := structField.Tag.Get("jorm")
+
+		if tagStr == "-" {
+			continue
+		}
+
 		tag := ParseTag(tagStr)
+
+		if tag.JoinTable != "" || tag.RelationType != "" {
+			continue
+		}
+
+		if structField.Type.Kind() == reflect.Slice || structField.Type.Kind() == reflect.Map {
+			continue
+		}
+
+		if structField.Type.Kind() == reflect.Ptr {
+			elemType := structField.Type.Elem()
+			if elemType.Kind() == reflect.Slice || elemType.Kind() == reflect.Map {
+				continue
+			}
+
+			if elemType.Kind() == reflect.Struct && isRelationField(elemType) {
+				continue
+			}
+		}
 
 		columnName := tag.Column
 		if columnName == "" {
@@ -87,6 +121,29 @@ func parseModel(typ reflect.Type) (*Model, error) {
 	}
 
 	return m, nil
+}
+
+func isRelationField(typ reflect.Type) bool {
+	if typ.Kind() != reflect.Struct {
+		return false
+	}
+
+	for i := 0; i < typ.NumField(); i++ {
+		field := typ.Field(i)
+		tagStr := field.Tag.Get("jorm")
+		if tagStr == "-" {
+			return true
+		}
+		tag := ParseTag(tagStr)
+		if tag.JoinTable != "" || tag.RelationType != "" {
+			return true
+		}
+		if tag.ForeignKey != "" && !tag.PrimaryKey && !tag.AutoInc {
+			return true
+		}
+	}
+
+	return false
 }
 
 func camelToSnake(s string) string {

@@ -30,6 +30,7 @@ type Query struct {
 	err      error
 	rawSQL   string
 	rawArgs  []any
+	preloads []*preloadConfig
 }
 
 type scanPlan struct {
@@ -156,6 +157,27 @@ func (q *Query) Raw(sql string, args ...any) *Query {
 	return q
 }
 
+// Preload preloads the specified relation.
+func (q *Query) Preload(name string) *Query {
+	return q.PreloadWith(name, nil)
+}
+
+// PreloadWith preloads the specified relation with a custom query function.
+func (q *Query) PreloadWith(name string, fn func(*Query)) *Query {
+	path := strings.Split(name, ".")
+	q.preloads = append(q.preloads, &preloadConfig{
+		path:    path,
+		builder: fn,
+	})
+	return q
+}
+
+// Joins adds a JOIN clause to the query.
+func (q *Query) Joins(table, joinType, on string) *Query {
+	q.builder.Join(table, joinType, on)
+	return q
+}
+
 // First retrieves the first record matching the query into dest.
 func (q *Query) First(dest any) error {
 	defer PutBuilder(q.builder)
@@ -164,7 +186,10 @@ func (q *Query) First(dest any) error {
 	}
 	q.builder.Limit(1)
 	sqlStr, args := q.builder.BuildSelect()
-	return q.queryRow(sqlStr, args, dest)
+	if err := q.queryRow(sqlStr, args, dest); err != nil {
+		return err
+	}
+	return q.executePreloads(dest)
 }
 
 // Find retrieves all records matching the query into dest (must be a pointer to a slice).
@@ -174,7 +199,10 @@ func (q *Query) Find(dest any) error {
 		return q.err
 	}
 	sqlStr, args := q.builder.BuildSelect()
-	return q.queryRows(sqlStr, args, dest)
+	if err := q.queryRows(sqlStr, args, dest); err != nil {
+		return err
+	}
+	return q.executePreloads(dest)
 }
 
 // Count returns the number of records matching the query.
