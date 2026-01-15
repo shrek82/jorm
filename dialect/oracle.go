@@ -12,6 +12,10 @@ import (
 type oracle struct{}
 
 func (d *oracle) DataTypeOf(typ reflect.Type) string {
+	for typ.Kind() == reflect.Ptr {
+		typ = typ.Elem()
+	}
+
 	switch typ.Kind() {
 	case reflect.Bool:
 		return "number(1)"
@@ -20,7 +24,9 @@ func (d *oracle) DataTypeOf(typ reflect.Type) string {
 		return "number(10)"
 	case reflect.Int64, reflect.Uint64:
 		return "number(19)"
-	case reflect.Float32, reflect.Float64:
+	case reflect.Float32:
+		return "binary_float"
+	case reflect.Float64:
 		return "binary_double"
 	case reflect.String:
 		return "varchar2(255)"
@@ -78,14 +84,14 @@ func (d *oracle) BatchInsertSQL(table string, columns []string, count int) (stri
 			placeholders = append(placeholders, fmt.Sprintf(":%d", argIndex))
 			argIndex++
 		}
-		rowPlaceholders = append(rowPlaceholders, "("+strings.Join(placeholders, ", ")+")")
+		rowPlaceholders = append(rowPlaceholders, fmt.Sprintf("INTO %s (%s) VALUES (%s)",
+			d.Quote(table),
+			strings.Join(columns, ", "),
+			strings.Join(placeholders, ", "),
+		))
 	}
 
-	sql := fmt.Sprintf("INSERT INTO %s (%s) VALUES %s",
-		d.Quote(table),
-		strings.Join(columns, ", "),
-		strings.Join(rowPlaceholders, ", "),
-	)
+	sql := fmt.Sprintf("INSERT ALL %s SELECT * FROM DUAL", strings.Join(rowPlaceholders, " "))
 	return sql, nil
 }
 

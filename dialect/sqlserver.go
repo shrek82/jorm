@@ -12,6 +12,10 @@ import (
 type sqlserver struct{}
 
 func (d *sqlserver) DataTypeOf(typ reflect.Type) string {
+	for typ.Kind() == reflect.Ptr {
+		typ = typ.Elem()
+	}
+
 	switch typ.Kind() {
 	case reflect.Bool:
 		return "bit"
