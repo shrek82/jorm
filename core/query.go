@@ -274,7 +274,19 @@ func (q *Query) queryRow(sqlStr string, args []any, dest any) error {
 		return ErrRecordNotFound
 	}
 
-	if err := q.scanRow(rows, dest); err != nil {
+	columns, err := rows.Columns()
+	if err != nil {
+		return err
+	}
+
+	m, err := model.GetModel(dest)
+	if err != nil {
+		return err
+	}
+
+	plan := getScanPlan(m, columns)
+
+	if err := q.scanRowWithPlan(rows, dest, plan); err != nil {
 		return err
 	}
 
@@ -302,9 +314,26 @@ func (q *Query) queryRows(sqlStr string, args []any, dest any) error {
 	sliceValue := destValue.Elem()
 	itemType := sliceValue.Type().Elem()
 
+	columns, err := rows.Columns()
+	if err != nil {
+		return err
+	}
+
+	var m *model.Model
+	var plan *scanPlan
+
 	for rows.Next() {
 		item := reflect.New(itemType).Interface()
-		if err := q.scanRow(rows, item); err != nil {
+
+		if plan == nil {
+			m, err = model.GetModel(item)
+			if err != nil {
+				return err
+			}
+			plan = getScanPlan(m, columns)
+		}
+
+		if err := q.scanRowWithPlan(rows, item, plan); err != nil {
 			return err
 		}
 
@@ -333,8 +362,11 @@ func (q *Query) scanRow(rows *sql.Rows, dest any) error {
 	}
 
 	plan := getScanPlan(m, columns)
+	return q.scanRowWithPlan(rows, dest, plan)
+}
 
-	values := make([]any, len(columns))
+func (q *Query) scanRowWithPlan(rows *sql.Rows, dest any, plan *scanPlan) error {
+	values := make([]any, len(plan.fields))
 	for i, field := range plan.fields {
 		if field != nil {
 			// Ensure we are using the correct type for the scanner
@@ -585,7 +617,10 @@ func (q *Query) Update(value any) (int64, error) {
 				if field.AutoUpdate && fVal.CanSet() {
 					fVal.Set(reflect.ValueOf(now))
 				}
-				data[field.Column] = fVal.Interface()
+				// Only include non-zero values for struct updates
+				if !fVal.IsZero() {
+					data[field.Column] = fVal.Interface()
+				}
 			}
 		}
 	}

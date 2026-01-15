@@ -110,7 +110,7 @@ func (db *DB) Exec(sql string, args ...any) (sql.Result, error) {
 }
 
 // Transaction executes a function within a database transaction.
-func (db *DB) Transaction(fn func(tx *Tx) error) error {
+func (db *DB) Transaction(fn func(tx *Tx) error) (err error) {
 	start := time.Now()
 	sqlTx, err := db.pool.Begin()
 	db.logSQL("BEGIN", time.Since(start))

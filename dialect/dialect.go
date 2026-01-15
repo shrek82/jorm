@@ -23,6 +23,8 @@ type Dialect interface {
 	HasTableSQL(tableName string) (string, []any)
 	// BatchInsertSQL generates a single SQL statement for multiple rows
 	BatchInsertSQL(table string, columns []string, count int) (string, []any)
+	// Placeholder returns the database-specific placeholder for a given index (1-based)
+	Placeholder(index int) string
 }
 
 var dialects = make(map[string]Dialect)
@@ -115,6 +117,10 @@ func (d *mysql) BatchInsertSQL(table string, columns []string, count int) (strin
 		strings.Join(rowPlaceholders, ", "),
 	)
 	return sql, nil
+}
+
+func (d *mysql) Placeholder(index int) string {
+	return "?"
 }
 
 // PostgreSQL dialect implementation
@@ -212,6 +218,10 @@ func (d *postgres) BatchInsertSQL(table string, columns []string, count int) (st
 	return sql, nil
 }
 
+func (d *postgres) Placeholder(index int) string {
+	return fmt.Sprintf("$%d", index)
+}
+
 // SQLite dialect implementation
 type sqlite3 struct{}
 
@@ -294,14 +304,18 @@ func (d *sqlite3) BatchInsertSQL(table string, columns []string, count int) (str
 	return sql, nil
 }
 
+func (d *sqlite3) Placeholder(index int) string {
+	return "?"
+}
+
 // Register built-in dialects
 func init() {
 	// Register MySQL dialect
 	Register("mysql", &mysql{})
-	
+
 	// Register PostgreSQL dialect
 	Register("postgres", &postgres{})
-	
+
 	// Register SQLite dialect
 	Register("sqlite3", &sqlite3{})
 }

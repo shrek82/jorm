@@ -8,7 +8,7 @@ import (
 
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/shrek82/jorm/core"
-	_ "github.com/shrek82/jorm/dialect"
+	"github.com/shrek82/jorm/dialect"
 )
 
 type User struct {
@@ -535,6 +535,114 @@ func TestIntegration(t *testing.T) {
 		}
 		if result.Email != "multi@example.com" {
 			t.Errorf("Expected Email multi@example.com, got %s", result.Email)
+		}
+	})
+
+	t.Run("DeterministicUpdateSQL", func(t *testing.T) {
+		d, _ := dialect.Get("sqlite3")
+		builder := core.NewBuilder(d)
+		builder.SetTable("users")
+		builder.Where("id = ?", 1)
+
+		data := map[string]any{
+			"z_col": 1,
+			"a_col": 2,
+			"m_col": 3,
+		}
+
+		sql, _ := builder.BuildUpdate(data)
+		// Expected order: a_col, m_col, z_col
+		expected := "UPDATE `users` SET `a_col` = ?, `m_col` = ?, `z_col` = ? WHERE (id = ?)"
+		if sql != expected {
+			t.Errorf("Expected deterministic SQL:\n%s\nGot:\n%s", expected, sql)
+		}
+	})
+
+	t.Run("PostgresPlaceholders", func(t *testing.T) {
+		pg, _ := dialect.Get("postgres")
+		builder := core.NewBuilder(pg)
+		builder.SetTable("users")
+		builder.Select("name", "age")
+		builder.Where("id = ?", 10)
+		builder.Where("status = ?", "active")
+		builder.Limit(5)
+
+		sql, _ := builder.BuildSelect()
+		expected := `SELECT name, age FROM "users" WHERE (id = $1) AND (status = $2) LIMIT $3`
+		if sql != expected {
+			t.Errorf("Expected PG placeholders:\n%s\nGot:\n%s", expected, sql)
+		}
+
+		// Test Update with PG placeholders
+		builder = core.NewBuilder(pg)
+		builder.SetTable("users")
+		builder.Where("id = ?", 1)
+		sql, _ = builder.BuildUpdate(map[string]any{"name": "test"})
+		expectedUpdate := `UPDATE "users" SET "name" = $1 WHERE (id = $2)`
+		if sql != expectedUpdate {
+			t.Errorf("Expected PG update placeholders:\n%s\nGot:\n%s", expectedUpdate, sql)
+		}
+	})
+
+	t.Run("UpdateZeroValue", func(t *testing.T) {
+		db, cleanup := setupTestDB(t)
+		defer cleanup()
+
+		user := &User{Name: "Initial", Email: "initial@example.com", Age: 20}
+		id, _ := db.Model(user).Insert(user)
+
+		// Update only Name, keep Age and Email (zero values in the struct)
+		updateUser := &User{Name: "Updated"}
+		affected, err := db.Model(&User{}).Where("id = ?", id).Update(updateUser)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if affected != 1 {
+			t.Errorf("Expected 1 row affected, got %d", affected)
+		}
+
+		// Verify values
+		var result User
+		db.Model(&User{}).Where("id = ?", id).First(&result)
+		if result.Name != "Updated" {
+			t.Errorf("Expected Name 'Updated', got '%s'", result.Name)
+		}
+		if result.Age != 20 {
+			t.Errorf("Expected Age 20 (not overwritten by 0), got %d", result.Age)
+		}
+		if result.Email != "initial@example.com" {
+			t.Errorf("Expected Email 'initial@example.com' (not overwritten by ''), got '%s'", result.Email)
+		}
+	})
+
+	t.Run("ScanPlanReuse", func(t *testing.T) {
+		db, cleanup := setupTestDB(t)
+		defer cleanup()
+
+		// Insert 10 users
+		for i := 1; i <= 10; i++ {
+			db.Model(&User{}).Insert(&User{
+				Name:  fmt.Sprintf("User%d", i),
+				Email: fmt.Sprintf("user%d@example.com", i),
+				Age:   i + 20,
+			})
+		}
+
+		var users []User
+		err := db.Model(&User{}).OrderBy("id ASC").Find(&users)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if len(users) != 10 {
+			t.Fatalf("Expected 10 users, got %d", len(users))
+		}
+
+		for i, u := range users {
+			expectedName := fmt.Sprintf("User%d", i+1)
+			if u.Name != expectedName {
+				t.Errorf("Row %d: Expected name %s, got %s", i, expectedName, u.Name)
+			}
 		}
 	})
 }

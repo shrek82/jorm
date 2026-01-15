@@ -2,6 +2,7 @@ package core
 
 import (
 	"reflect"
+	"sort"
 	"strings"
 	"sync"
 
@@ -123,6 +124,15 @@ func (b *sqlBuilder) WhereIn(column string, values any) Builder {
 	if v.Len() == 0 {
 		return b.Where("1 = 0")
 	}
+
+	// For WhereIn, we don't know the final argument index yet because
+	// BuildSelect/BuildUpdate will handle the final placeholder generation.
+	// However, the current implementation of Where() and Build* methods
+	// expects placeholders to be in the condition string.
+	// This is a bit tricky with positional placeholders ($1, $2).
+	// A better way is to use a special placeholder in Where strings
+	// and replace them during Build.
+
 	placeholders := make([]string, v.Len())
 	args := make([]any, 0, v.Len())
 	for i := 0; i < v.Len(); i++ {
@@ -162,6 +172,21 @@ func (b *sqlBuilder) Offset(n int) Builder {
 	b.offsetSet = true
 	b.offset = n
 	return b
+}
+
+func (b *sqlBuilder) replacePlaceholders(sql string) string {
+	if strings.Contains(sql, "?") {
+		index := 1
+		for {
+			newSQL := strings.Replace(sql, "?", b.dialect.Placeholder(index), 1)
+			if newSQL == sql {
+				break
+			}
+			sql = newSQL
+			index++
+		}
+	}
+	return sql
 }
 
 // BuildSelect generates the complete SELECT SQL statement and its arguments.
@@ -206,7 +231,8 @@ func (b *sqlBuilder) BuildSelect() (string, []any) {
 		args = append(args, b.offset)
 	}
 
-	return strings.Join(sqls, " "), args
+	sql := strings.Join(sqls, " ")
+	return b.replacePlaceholders(sql), args
 }
 
 // PutBuilder returns a sqlBuilder to the pool for reuse.
@@ -228,10 +254,17 @@ func (b *sqlBuilder) BuildUpdate(data map[string]any) (string, []any) {
 
 	sqls = append(sqls, "UPDATE", b.dialect.Quote(b.table), "SET")
 
+	// Sort columns to ensure deterministic SQL generation
+	columns := make([]string, 0, len(data))
+	for col := range data {
+		columns = append(columns, col)
+	}
+	sort.Strings(columns)
+
 	var sets []string
-	for col, val := range data {
+	for _, col := range columns {
 		sets = append(sets, b.dialect.Quote(col)+" = ?")
-		args = append(args, val)
+		args = append(args, data[col])
 	}
 	sqls = append(sqls, strings.Join(sets, ", "))
 
@@ -240,7 +273,8 @@ func (b *sqlBuilder) BuildUpdate(data map[string]any) (string, []any) {
 		args = append(args, b.whereArgs...)
 	}
 
-	return strings.Join(sqls, " "), args
+	sql := strings.Join(sqls, " ")
+	return b.replacePlaceholders(sql), args
 }
 
 // BuildDelete generates the DELETE SQL statement.
@@ -255,5 +289,6 @@ func (b *sqlBuilder) BuildDelete() (string, []any) {
 		args = append(args, b.whereArgs...)
 	}
 
-	return strings.Join(sqls, " "), args
+	sql := strings.Join(sqls, " ")
+	return b.replacePlaceholders(sql), args
 }
