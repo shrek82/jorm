@@ -11,6 +11,7 @@ import (
 
 	"github.com/shrek82/jorm/logger"
 	"github.com/shrek82/jorm/model"
+	"github.com/shrek82/jorm/validator"
 )
 
 // Executor defines the interface for executing SQL queries and commands.
@@ -550,6 +551,16 @@ func setFieldValue(dest reflect.Value, field *model.Field, value reflect.Value, 
 	}
 }
 
+// InsertWithValidator performs an insertion with the given validators.
+func (q *Query) InsertWithValidator(value any, validators ...validator.Validator) (int64, error) {
+	for _, v := range validators {
+		if err := v(value); err != nil {
+			return 0, err
+		}
+	}
+	return q.Insert(value)
+}
+
 func (q *Query) Insert(value any) (int64, error) {
 	defer PutBuilder(q.builder)
 	if q.err != nil {
@@ -729,6 +740,16 @@ func (q *Query) BatchInsert(values any) (int64, error) {
 
 	q.handleError(nil)
 	return totalAffected, nil
+}
+
+// UpdateWithValidator performs an update with the given validators.
+func (q *Query) UpdateWithValidator(value any, validators ...validator.Validator) (int64, error) {
+	for _, v := range validators {
+		if err := v(value); err != nil {
+			return 0, err
+		}
+	}
+	return q.Update(value)
 }
 
 // Update updates the record(s) matching the query with the provided data.

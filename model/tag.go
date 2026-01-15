@@ -32,8 +32,9 @@ func ParseTag(tagStr string) *Tag {
 		return tag
 	}
 
-	// Support both space and semicolon as separators
+	// Support space, semicolon and comma as separators
 	tagStr = strings.ReplaceAll(tagStr, ";", " ")
+	tagStr = strings.ReplaceAll(tagStr, ",", " ")
 	parts := strings.Split(tagStr, " ")
 
 	for _, part := range parts {
