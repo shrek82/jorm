@@ -21,6 +21,9 @@ func (q *Query) InsertWithValidator(value any, validators ...Validator) (int64, 
 
 // UpdateWithValidator 使用指定的验证器进行更新
 func (q *Query) UpdateWithValidator(value any, validators ...Validator) (int64, error)
+
+// Validate 独立验证方法，不触发数据库操作
+func Validate(value any, validators ...Validator) error
 ```
 
 ### 2.2 验证器定义
@@ -31,7 +34,17 @@ func (q *Query) UpdateWithValidator(value any, validators ...Validator) (int64, 
 type Validator func(value any) error
 ```
 
-JORM 提供 `jorm.Rules` 类型，通过 **Map 映射** 的方式定义字段规则，配合链式属性，使代码达到极致简洁：
+为了支持一次性返回多个字段的错误，JORM 内部定义了 `ValidationErrors`：
+
+```go
+// ValidationErrors 包含多个字段的错误信息
+type ValidationErrors map[string][]error
+
+func (v ValidationErrors) Error() string {
+    // 自动格式化所有错误消息
+}
+```
+ JORM 提供 `jorm.Rules` 类型，通过 **Map 映射** 的方式定义字段规则，配合链式属性，使代码达到极致简洁：
 
 ```go
 // 语法结构
@@ -79,6 +92,20 @@ db.Model(user).InsertWithValidator(user,
 )
 ```
 
+### 3.3 独立验证 (Standalone Validation)
+
+如果你只想执行校验逻辑而不进行数据库操作（例如在 Web 层接收到参数后立即校验），可以使用 `jorm.Validate`：
+
+```go
+user := &User{Name: "A", Age: -1}
+
+// 独立执行校验
+if err := jorm.Validate(user, user.CommonValidator()); err != nil {
+    fmt.Println("数据非法:", err)
+    return
+}
+```
+
 ## 4. 验证规则定义 (Concise Rules)
 
 ### 4.1 基础校验
@@ -96,8 +123,21 @@ db.Model(user).InsertWithValidator(user,
 | `Email` | 必须是有效的 Email 格式 | `"Email": {jorm.Email}` |
 | `Mobile` | 必须是有效的手机号格式 | `"Phone": {jorm.Mobile}` |
 | `URL` | 必须是有效的 URL 地址 | `"Link": {jorm.URL}` |
+| `IP` | 必须是有效的 IPv4 或 IPv6 地址 | `"LastIP": {jorm.IP}` |
+| `JSON` | 必须是有效的 JSON 字符串 | `"Config": {jorm.JSON}` |
+| `UUID` | 必须是有效的 UUID 格式 | `"TraceID": {jorm.UUID}` |
+| `Datetime(fmt)` | 必须符合指定的日期时间格式 | `"Day": {jorm.Datetime("2006-01-02")}` |
+| `Regexp(p)` | 必须匹配指定的正则表达式 | `"SN": {jorm.Regexp("^SN-\\d+$")}` |
 
-### 4.3 链式修饰符
+### 4.3 字符集与内容校验
+| 规则 | 说明 | 示例 |
+| :--- | :--- | :--- |
+| `Numeric` | 仅允许数字字符 | `"Zip": {jorm.Numeric}` |
+| `Alpha` | 仅允许英文字母 | `"Code": {jorm.Alpha}` |
+| `AlphaNumeric` | 允许英文字母和数字 | `"ID": {jorm.AlphaNumeric}` |
+| `Contains(s)` | 必须包含指定的子字符串 | `"Tags": {jorm.Contains("go")}` |
+| `Excludes(s)` | 不能包含指定的子字符串 | `"Note": {jorm.Excludes("badword")}` |
+| `NoHTML` | 禁止包含任何 HTML 标签 | `"Bio": {jorm.NoHTML}` |
 
 **所有规则对象**（无论是基础校验还是格式校验）都实现了统一的接口，支持以下链式调用：
 
@@ -193,12 +233,30 @@ func main() {
     if err != nil {
         fmt.Println("组合校验失败:", err)
     }
+
+    // 3. 独立校验示例 (不操作数据库)
+    // 场景：在逻辑处理前先检查数据合法性
+    newUser := &User{Name: "Bob"}
+    if err := jorm.Validate(newUser, newUser.CommonValidator()); err != nil {
+        fmt.Printf("独立校验未通过: %v\n", err)
+    }
 }
 ```
 
-## 6. 设计优势
+## 7. 进阶特性 (Advanced)
 
-1. **类型安全**：直接使用函数和对象，避免了字符串拼写错误。
-2. **IDE 友好**：支持代码补全、跳转到定义以及重构。
-3. **极高灵活性**：`Validator` 本质是函数，可以编写任何复杂的业务逻辑（如查库校验、跨字段对比）。
-4. **零配置**：不需要注册验证器名称，随写随用。
+### 7.1 跨字段校验 (Cross-field)
+
+你可以通过自定义验证器实现复杂的跨字段逻辑：
+
+```go
+func (m *User) PasswordMatchValidator() jorm.Validator {
+    return func(value any) error {
+        u := value.(*User)
+        if u.Password != u.ConfirmPassword {
+            return errors.New("两次输入的密码不一致")
+        }
+        return nil
+    }
+}
+```
