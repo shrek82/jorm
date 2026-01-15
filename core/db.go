@@ -316,6 +316,64 @@ func (db *DB) alterTableIfNeeded(m *model.Model) error {
 }
 
 func (db *DB) syncIndexes(m *model.Model) error {
-	// TODO: Implement index sync
+	sqlStr, args := db.dialect.GetIndexesSQL(m.TableName)
+	rows, err := db.pool.QueryContext(context.Background(), sqlStr, args...)
+	if err != nil {
+		return fmt.Errorf("failed to get indexes for table %s: %w", m.TableName, err)
+	}
+	defer rows.Close()
+
+	existingIndexes, err := db.dialect.ParseIndexes(rows)
+	if err != nil {
+		return fmt.Errorf("failed to parse indexes for table %s: %w", m.TableName, err)
+	}
+
+	// Helper to check if an index exists with the same columns
+	hasIndex := func(columns []string, unique bool) bool {
+		for _, existingCols := range existingIndexes {
+			if len(existingCols) == 0 {
+				// For SQLite, ParseIndexes might return index names with empty columns for now
+				// This is a limitation we might need to fix, but for now we'll match by name convention if columns are empty
+				continue
+			}
+			if len(existingCols) != len(columns) {
+				continue
+			}
+			match := true
+			for i, col := range columns {
+				if strings.ToLower(existingCols[i]) != strings.ToLower(col) {
+					match = false
+					break
+				}
+			}
+			if match {
+				return true
+			}
+		}
+		return false
+	}
+
+	for _, field := range m.Fields {
+		if field.IsUnique {
+			indexName := fmt.Sprintf("idx_%s_%s", m.TableName, field.Column)
+
+			// For SQLite, check by name if columns are empty
+			existsByName := false
+			if _, ok := existingIndexes[indexName]; ok {
+				existsByName = true
+			}
+
+			if !existsByName && !hasIndex([]string{field.Column}, true) {
+				createIdxSQL, createIdxArgs := db.dialect.CreateIndexSQL(m.TableName, indexName, []string{field.Column}, true)
+				if createIdxSQL != "" {
+					_, err = db.Exec(createIdxSQL, createIdxArgs...)
+					if err != nil {
+						return fmt.Errorf("failed to create unique index %s on table %s: %w", indexName, m.TableName, err)
+					}
+				}
+			}
+		}
+	}
+
 	return nil
 }

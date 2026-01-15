@@ -32,6 +32,12 @@ type Dialect interface {
 	ModifyColumnSQL(tableName string, field *model.Field) (string, []any)
 	// ParseColumns parses the rows from GetColumnsSQL into a slice of column names
 	ParseColumns(rows *sql.Rows) ([]string, error)
+	// GetIndexesSQL generates the SQL to get indexes of a table
+	GetIndexesSQL(tableName string) (string, []any)
+	// ParseIndexes parses the rows from GetIndexesSQL into a map of index name to column names
+	ParseIndexes(rows *sql.Rows) (map[string][]string, error)
+	// CreateIndexSQL generates the SQL to create an index
+	CreateIndexSQL(tableName string, indexName string, columns []string, unique bool) (string, []any)
 }
 
 var dialects = make(map[string]Dialect)

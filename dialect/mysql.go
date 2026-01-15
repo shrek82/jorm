@@ -125,3 +125,42 @@ func (d *mysql) ParseColumns(rows *sql.Rows) ([]string, error) {
 	}
 	return columns, nil
 }
+
+func (d *mysql) GetIndexesSQL(tableName string) (string, []any) {
+	return fmt.Sprintf("SHOW INDEX FROM %s", d.Quote(tableName)), nil
+}
+
+func (d *mysql) ParseIndexes(rows *sql.Rows) (map[string][]string, error) {
+	indexes := make(map[string][]string)
+	for rows.Next() {
+		var table, nonUnique, keyName, seqInIndex, columnName, collation, cardinality, subPart, packed, nullable, indexType, comment, indexComment, visible, expression any
+		// MySQL SHOW INDEX has many columns
+		err := rows.Scan(&table, &nonUnique, &keyName, &seqInIndex, &columnName, &collation, &cardinality, &subPart, &packed, &nullable, &indexType, &comment, &indexComment, &visible, &expression)
+		if err != nil {
+			// Older MySQL versions might have fewer columns
+			err = rows.Scan(&table, &nonUnique, &keyName, &seqInIndex, &columnName, &collation, &cardinality, &subPart, &packed, &nullable, &indexType, &comment, &indexComment)
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		name := fmt.Sprintf("%v", keyName)
+		col := fmt.Sprintf("%v", columnName)
+		indexes[name] = append(indexes[name], col)
+	}
+	return indexes, nil
+}
+
+func (d *mysql) CreateIndexSQL(tableName string, indexName string, columns []string, unique bool) (string, []any) {
+	uniqueStr := ""
+	if unique {
+		uniqueStr = "UNIQUE "
+	}
+	sql := fmt.Sprintf("CREATE %sINDEX %s ON %s (%s)",
+		uniqueStr,
+		d.Quote(indexName),
+		d.Quote(tableName),
+		strings.Join(columns, ", "),
+	)
+	return sql, nil
+}

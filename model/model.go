@@ -138,6 +138,7 @@ func (m *Model) parseFields(typ reflect.Type, baseIndex []int) error {
 			IsAuto:     tag.AutoInc,
 			AutoTime:   tag.AutoTime,
 			AutoUpdate: tag.AutoUpdate,
+			IsUnique:   tag.Unique,
 			Tag:        tagStr,
 		}
 

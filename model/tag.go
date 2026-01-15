@@ -31,7 +31,10 @@ func ParseTag(tagStr string) *Tag {
 		return tag
 	}
 
+	// Support both space and semicolon as separators
+	tagStr = strings.ReplaceAll(tagStr, ";", " ")
 	parts := strings.Split(tagStr, " ")
+
 	for _, part := range parts {
 		part = strings.TrimSpace(part)
 		if part == "" {

@@ -132,3 +132,38 @@ func (d *oracle) ParseColumns(rows *sql.Rows) ([]string, error) {
 	}
 	return columns, nil
 }
+
+func (d *oracle) GetIndexesSQL(tableName string) (string, []any) {
+	return `
+		SELECT 
+			index_name,
+			column_name
+		FROM user_ind_columns
+		WHERE table_name = UPPER(:1)`, []any{tableName}
+}
+
+func (d *oracle) ParseIndexes(rows *sql.Rows) (map[string][]string, error) {
+	indexes := make(map[string][]string)
+	for rows.Next() {
+		var indexName, columnName string
+		if err := rows.Scan(&indexName, &columnName); err != nil {
+			return nil, err
+		}
+		indexes[indexName] = append(indexes[indexName], strings.ToLower(columnName))
+	}
+	return indexes, nil
+}
+
+func (d *oracle) CreateIndexSQL(tableName string, indexName string, columns []string, unique bool) (string, []any) {
+	uniqueStr := ""
+	if unique {
+		uniqueStr = "UNIQUE "
+	}
+	sql := fmt.Sprintf("CREATE %sINDEX %s ON %s (%s)",
+		uniqueStr,
+		d.Quote(indexName),
+		d.Quote(tableName),
+		strings.Join(columns, ", "),
+	)
+	return sql, nil
+}

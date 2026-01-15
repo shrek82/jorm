@@ -15,5 +15,6 @@ type Field struct {
 	IsAuto     bool         // Is auto-increment
 	AutoTime   bool         // Set time on insert
 	AutoUpdate bool         // Set time on update
+	IsUnique   bool         // Is unique index
 	Tag        string       // Raw tag string
 }

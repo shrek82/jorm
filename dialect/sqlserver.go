@@ -132,3 +132,40 @@ func (d *sqlserver) ParseColumns(rows *sql.Rows) ([]string, error) {
 	}
 	return columns, nil
 }
+
+func (d *sqlserver) GetIndexesSQL(tableName string) (string, []any) {
+	return `
+		SELECT 
+			i.name AS index_name,
+			c.name AS column_name
+		FROM sys.indexes i
+		INNER JOIN sys.index_columns ic ON i.object_id = ic.object_id AND i.index_id = ic.index_id
+		INNER JOIN sys.columns c ON ic.object_id = c.object_id AND ic.column_id = c.column_id
+		WHERE i.object_id = OBJECT_ID(@p1)`, []any{tableName}
+}
+
+func (d *sqlserver) ParseIndexes(rows *sql.Rows) (map[string][]string, error) {
+	indexes := make(map[string][]string)
+	for rows.Next() {
+		var indexName, columnName string
+		if err := rows.Scan(&indexName, &columnName); err != nil {
+			return nil, err
+		}
+		indexes[indexName] = append(indexes[indexName], columnName)
+	}
+	return indexes, nil
+}
+
+func (d *sqlserver) CreateIndexSQL(tableName string, indexName string, columns []string, unique bool) (string, []any) {
+	uniqueStr := ""
+	if unique {
+		uniqueStr = "UNIQUE "
+	}
+	sql := fmt.Sprintf("CREATE %sINDEX %s ON %s (%s)",
+		uniqueStr,
+		d.Quote(indexName),
+		d.Quote(tableName),
+		strings.Join(columns, ", "),
+	)
+	return sql, nil
+}

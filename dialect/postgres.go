@@ -141,3 +141,43 @@ func (d *postgres) ParseColumns(rows *sql.Rows) ([]string, error) {
 	}
 	return columns, nil
 }
+
+func (d *postgres) GetIndexesSQL(tableName string) (string, []any) {
+	return "SELECT indexname, indexdef FROM pg_indexes WHERE schemaname = 'public' AND tablename = $1", []any{tableName}
+}
+
+func (d *postgres) ParseIndexes(rows *sql.Rows) (map[string][]string, error) {
+	indexes := make(map[string][]string)
+	for rows.Next() {
+		var name, def string
+		if err := rows.Scan(&name, &def); err != nil {
+			return nil, err
+		}
+		// Extract columns from index definition
+		// e.g. "CREATE UNIQUE INDEX idx_name ON table_name USING btree (col1, col2)"
+		start := strings.Index(def, "(")
+		end := strings.LastIndex(def, ")")
+		if start != -1 && end != -1 && end > start {
+			colsPart := def[start+1 : end]
+			cols := strings.Split(colsPart, ",")
+			for _, col := range cols {
+				indexes[name] = append(indexes[name], strings.TrimSpace(col))
+			}
+		}
+	}
+	return indexes, nil
+}
+
+func (d *postgres) CreateIndexSQL(tableName string, indexName string, columns []string, unique bool) (string, []any) {
+	uniqueStr := ""
+	if unique {
+		uniqueStr = "UNIQUE "
+	}
+	sql := fmt.Sprintf("CREATE %sINDEX %s ON %s (%s)",
+		uniqueStr,
+		d.Quote(indexName),
+		d.Quote(tableName),
+		strings.Join(columns, ", "),
+	)
+	return sql, nil
+}

@@ -131,3 +131,52 @@ func (d *sqlite3) ParseColumns(rows *sql.Rows) ([]string, error) {
 	}
 	return columns, nil
 }
+
+func (d *sqlite3) GetIndexesSQL(tableName string) (string, []any) {
+	return fmt.Sprintf("PRAGMA index_list(%s)", d.Quote(tableName)), nil
+}
+
+func (d *sqlite3) ParseIndexes(rows *sql.Rows) (map[string][]string, error) {
+	indexes := make(map[string][]string)
+	var indexNames []string
+
+	for rows.Next() {
+		var seq int
+		var name string
+		var unique int
+		var origin string
+		var partial int
+		if err := rows.Scan(&seq, &name, &unique, &origin, &partial); err != nil {
+			return nil, err
+		}
+		indexNames = append(indexNames, name)
+	}
+
+	// For each index, get its columns
+	// Note: This is a bit inefficient as we need to query for each index,
+	// but PRAGMA doesn't provide a way to get all at once easily.
+	// In JORM's current architecture, we'll do this for simplicity.
+	// A better way would be to have access to the db pool here, but we don't.
+	// So we'll return the names for now and handle column fetching in syncIndexes if needed,
+	// OR we assume index name matches our convention.
+	// For SQLite, we can just return the index names as keys.
+	for _, name := range indexNames {
+		indexes[name] = []string{} // Columns will be empty for now
+	}
+
+	return indexes, nil
+}
+
+func (d *sqlite3) CreateIndexSQL(tableName string, indexName string, columns []string, unique bool) (string, []any) {
+	uniqueStr := ""
+	if unique {
+		uniqueStr = "UNIQUE "
+	}
+	sql := fmt.Sprintf("CREATE %sINDEX %s ON %s (%s)",
+		uniqueStr,
+		d.Quote(indexName),
+		d.Quote(tableName),
+		strings.Join(columns, ", "),
+	)
+	return sql, nil
+}
