@@ -19,6 +19,7 @@ type Builder interface {
 	OrWhere(cond string, args ...any) Builder
 	WhereIn(column string, values any) Builder
 	Join(table, joinType, on string) Builder
+	Joins(query string, args ...any) Builder
 	OrderBy(columns ...string) Builder
 	Limit(n int) Builder
 	Offset(n int) Builder
@@ -37,6 +38,7 @@ type sqlBuilder struct {
 	whereExpr  string
 	whereArgs  []any
 	joins      []string
+	joinArgs   []any
 	orderBy    []string
 	limitSet   bool
 	limit      int
@@ -60,6 +62,7 @@ func NewBuilder(d dialect.Dialect) Builder {
 	b.whereExpr = ""
 	b.whereArgs = b.whereArgs[:0]
 	b.joins = b.joins[:0]
+	b.joinArgs = b.joinArgs[:0]
 	b.orderBy = b.orderBy[:0]
 	b.limitSet = false
 	b.limit = 0
@@ -154,6 +157,12 @@ func (b *sqlBuilder) Join(table, joinType, on string) Builder {
 	return b
 }
 
+func (b *sqlBuilder) Joins(query string, args ...any) Builder {
+	b.joins = append(b.joins, query)
+	b.joinArgs = append(b.joinArgs, args...)
+	return b
+}
+
 // OrderBy adds the ORDER BY clause.
 func (b *sqlBuilder) OrderBy(columns ...string) Builder {
 	b.orderBy = append(b.orderBy, columns...)
@@ -210,6 +219,7 @@ func (b *sqlBuilder) BuildSelect() (string, []any) {
 
 	if len(b.joins) > 0 {
 		sqls = append(sqls, strings.Join(b.joins, " "))
+		args = append(args, b.joinArgs...)
 	}
 
 	if b.whereExpr != "" {

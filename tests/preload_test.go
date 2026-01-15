@@ -600,7 +600,7 @@ func TestJoinsInner(t *testing.T) {
 	var results []OrderWithUserInner
 	err = db.Model(&PreloadOrder{}).
 		Select("preload_order.*", "preload_user.name as user_name").
-		Joins("preload_user", "INNER", "preload_user.id = preload_order.user_id").
+		Joins("INNER JOIN preload_user ON preload_user.id = preload_order.user_id").
 		Find(&results)
 	if err != nil {
 		t.Fatalf("Failed to find orders with joins: %v", err)
@@ -640,15 +640,15 @@ func TestJoinsLeft(t *testing.T) {
 		t.Fatalf("Failed to insert order: %v", err)
 	}
 
-	type OrderWithUser struct {
+	type OrderWithUserLeft struct {
 		PreloadOrder
 		UserName string `jorm:"column:user_name"`
 	}
 
-	var results []OrderWithUser
+	var results []OrderWithUserLeft
 	err = db.Model(&PreloadOrder{}).
 		Select("preload_order.*", "preload_user.name as user_name").
-		Joins("preload_user", "LEFT", "preload_user.id = preload_order.user_id").
+		Joins("LEFT JOIN preload_user ON preload_user.id = preload_order.user_id").
 		Find(&results)
 	if err != nil {
 		t.Fatalf("Failed to find orders with left join: %v", err)

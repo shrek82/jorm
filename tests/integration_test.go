@@ -339,7 +339,7 @@ func TestIntegration(t *testing.T) {
 				"`order`.amount as amount",
 				"`user`.name as user_name",
 			).
-			Join("user", "INNER", "`user`.id = `order`.user_id").
+			Joins("INNER JOIN `user` ON `user`.id = `order`.user_id").
 			Where("`user`.name = ?", "JoinUser").
 			Find(&results)
 		if err != nil {
@@ -443,8 +443,8 @@ func TestIntegration(t *testing.T) {
 				"`user`.name as user_name",
 				"`address`.city as city",
 			).
-			Join("user", "INNER", "`user`.id = `order`.user_id").
-			Join("address", "INNER", "`address`.user_id = `order`.user_id").
+			Joins("INNER JOIN `user` ON `user`.id = `order`.user_id").
+			Joins("INNER JOIN `address` ON `address`.user_id = `order`.user_id").
 			Where("`user`.name = ?", "JoinMultiUser").
 			Find(&results)
 		if err != nil {
@@ -461,6 +461,56 @@ func TestIntegration(t *testing.T) {
 		}
 		if results[0].City != "Shanghai" {
 			t.Errorf("Expected City Shanghai, got %s", results[0].City)
+		}
+	})
+
+	t.Run("JoinsWithArgs", func(t *testing.T) {
+		db, cleanup := setupTestDB(t)
+		defer cleanup()
+
+		err := db.AutoMigrate(&Order{})
+		if err != nil {
+			t.Fatalf("AutoMigrate Order failed: %v", err)
+		}
+
+		user := &User{
+			Name:  "ArgsUser",
+			Email: "args@example.com",
+			Age:   30,
+		}
+		userID, err := db.Model(user).Insert(user)
+		if err != nil {
+			t.Fatalf("Insert user failed: %v", err)
+		}
+
+		order := &Order{
+			UserID: userID,
+			Amount: 150.0,
+		}
+		_, err = db.Model(order).Insert(order)
+		if err != nil {
+			t.Fatalf("Insert order failed: %v", err)
+		}
+
+		type OrderWithUserArgs struct {
+			ID       int64   `jorm:"column:id"`
+			UserName string  `jorm:"column:user_name"`
+			Amount   float64 `jorm:"column:amount"`
+		}
+
+		var results []OrderWithUserArgs
+		err = db.Model(&Order{}).
+			Select("`order`.id as id", "`user`.name as user_name", "`order`.amount as amount").
+			Joins("INNER JOIN `user` ON `user`.id = `order`.user_id AND `user`.age = ?", 30).
+			Find(&results)
+		if err != nil {
+			t.Fatalf("Joins with args failed: %v", err)
+		}
+		if len(results) != 1 {
+			t.Fatalf("Expected 1 result, got %d", len(results))
+		}
+		if results[0].UserName != "ArgsUser" {
+			t.Errorf("Expected UserName ArgsUser, got %s", results[0].UserName)
 		}
 	})
 

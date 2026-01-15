@@ -183,8 +183,9 @@ func (q *Query) PreloadWith(name string, fn func(*Query)) *Query {
 }
 
 // Joins adds a JOIN clause to the query.
-func (q *Query) Joins(table, joinType, on string) *Query {
-	q.builder.Join(table, joinType, on)
+// It supports raw SQL JOIN clauses: q.Joins("JOIN users ON users.id = orders.user_id")
+func (q *Query) Joins(query string, args ...any) *Query {
+	q.builder.Joins(query, args...)
 	return q
 }
 
