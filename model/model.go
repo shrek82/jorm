@@ -27,7 +27,7 @@ var modelCache sync.Map
 // GetModel returns the model metadata for a given value
 func GetModel(value any) (*Model, error) {
 	if value == nil {
-		return nil, fmt.Errorf("value is nil")
+		return nil, fmt.Errorf("failed to get model: value is nil")
 	}
 
 	typ := reflect.TypeOf(value)
@@ -36,7 +36,7 @@ func GetModel(value any) (*Model, error) {
 	}
 
 	if typ.Kind() != reflect.Struct {
-		return nil, fmt.Errorf("value must be a struct or pointer to struct, got %s", typ.Kind())
+		return nil, fmt.Errorf("failed to get model for %s: value must be a struct or pointer to struct", typ.Kind())
 	}
 
 	key := typ.PkgPath() + "." + typ.Name()
@@ -46,7 +46,7 @@ func GetModel(value any) (*Model, error) {
 
 	m, err := parseModel(typ)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to parse model for %s: %w", typ.Name(), err)
 	}
 
 	InvalidateRelationCache()

@@ -59,7 +59,7 @@ func GetRelation(m *Model, name string) (*Relation, error) {
 
 	relation, err := parseRelationFromTyp(m.OriginalType, name)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get relation %s for model %s: %w", name, m.TableName, err)
 	}
 
 	relationCache.Store(key, &relationWithVersion{

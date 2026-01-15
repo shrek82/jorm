@@ -36,7 +36,7 @@ func Open(driver, dsn string, opts *Options) (*DB, error) {
 
 	sqlDB, err := sql.Open(driver, dsn)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to open database connection: %w", err)
 	}
 
 	p := pool.NewStdPool(sqlDB)
@@ -54,7 +54,7 @@ func Open(driver, dsn string, opts *Options) (*DB, error) {
 	}
 
 	if err := p.Ping(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("database ping failed: %w", err)
 	}
 
 	return &DB{

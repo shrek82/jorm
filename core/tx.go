@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"database/sql"
+	"fmt"
 )
 
 // Tx represents a database transaction.
@@ -24,12 +25,18 @@ func (tx *Tx) Table(name string) *Query {
 
 // Commit commits the transaction.
 func (tx *Tx) Commit() error {
-	return tx.sqlTx.Commit()
+	if err := tx.sqlTx.Commit(); err != nil {
+		return fmt.Errorf("transaction commit failed: %w", err)
+	}
+	return nil
 }
 
 // Rollback rolls back the transaction.
 func (tx *Tx) Rollback() error {
-	return tx.sqlTx.Rollback()
+	if err := tx.sqlTx.Rollback(); err != nil {
+		return fmt.Errorf("transaction rollback failed: %w", err)
+	}
+	return nil
 }
 
 // QueryContext executes a query that returns rows, typically a SELECT.
