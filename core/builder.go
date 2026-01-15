@@ -59,6 +59,11 @@ var builderPool = sync.Pool{
 // NewBuilder creates a new sqlBuilder instance with the given dialect.
 func NewBuilder(d dialect.Dialect) Builder {
 	b := builderPool.Get().(*sqlBuilder)
+	b.Reset(d)
+	return b
+}
+
+func (b *sqlBuilder) Reset(d dialect.Dialect) {
 	b.dialect = d
 	b.table = ""
 	b.alias = ""
@@ -75,7 +80,6 @@ func NewBuilder(d dialect.Dialect) Builder {
 	b.limit = 0
 	b.offsetSet = false
 	b.offset = 0
-	return b
 }
 
 // SetTable sets the table name for the current SQL statement.
@@ -296,6 +300,7 @@ func (b *sqlBuilder) BuildSelect() (string, []any) {
 // PutBuilder returns a sqlBuilder to the pool for reuse.
 func PutBuilder(b Builder) {
 	if sb, ok := b.(*sqlBuilder); ok {
+		sb.Reset(nil)
 		builderPool.Put(sb)
 	}
 }

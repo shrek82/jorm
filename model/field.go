@@ -4,6 +4,9 @@ import (
 	"reflect"
 )
 
+// Accessor is a pre-generated function to access a field value from a struct
+type Accessor func(reflect.Value) reflect.Value
+
 // Field represents a database column mapped from a struct field
 type Field struct {
 	Name       string       // Struct field name
@@ -17,4 +20,5 @@ type Field struct {
 	AutoUpdate bool         // Set time on update
 	IsUnique   bool         // Is unique index
 	Tag        string       // Raw tag string
+	Accessor   Accessor     // Pre-generated field accessor
 }

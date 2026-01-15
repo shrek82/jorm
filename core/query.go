@@ -334,11 +334,42 @@ func (q *Query) Sum(column string) (float64, error) {
 }
 
 // Scan executes a raw query and scans the result into dest.
+// dest can be a pointer to a struct or a pointer to a slice.
 func (q *Query) Scan(dest any) error {
 	if q.rawSQL == "" {
 		return fmt.Errorf("raw sql is empty")
 	}
-	return q.queryRows(q.rawSQL, q.rawArgs, dest)
+
+	val := reflect.ValueOf(dest)
+	if val.Kind() != reflect.Ptr {
+		return fmt.Errorf("dest must be a pointer")
+	}
+
+	if val.Elem().Kind() == reflect.Slice {
+		return q.queryRows(q.rawSQL, q.rawArgs, dest)
+	}
+	return q.queryRow(q.rawSQL, q.rawArgs, dest)
+}
+
+// Exec executes a raw SQL statement and returns the number of affected rows.
+func (q *Query) Exec() (int64, error) {
+	if q.rawSQL == "" {
+		return 0, fmt.Errorf("raw sql is empty")
+	}
+
+	start := time.Now()
+	res, err := q.executor.ExecContext(q.ctx, q.rawSQL, q.rawArgs...)
+	q.logSQL(q.rawSQL, time.Since(start), q.rawArgs...)
+	if err != nil {
+		return 0, q.handleError(fmt.Errorf("raw sql execution failed: %w", err))
+	}
+
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return 0, q.handleError(fmt.Errorf("failed to get affected rows: %w", err))
+	}
+
+	return rows, nil
 }
 
 func (q *Query) handleError(err error) error {
@@ -508,26 +539,8 @@ func (q *Query) scanRowWithPlan(rows *sql.Rows, dest any, plan *scanPlan) error 
 }
 
 func setFieldValue(dest reflect.Value, field *model.Field, value reflect.Value, plan *scanPlan, index int) {
-	var f reflect.Value
-	if len(field.NestedIdx) > 0 {
-		f = dest
-		for _, i := range field.NestedIdx {
-			if f.Kind() == reflect.Ptr {
-				if f.IsNil() {
-					if !f.CanSet() {
-						return
-					}
-					f.Set(reflect.New(f.Type().Elem()))
-				}
-				f = f.Elem()
-			}
-			f = f.Field(i)
-		}
-	} else {
-		f = dest.Field(field.Index)
-	}
-
-	if f.CanSet() {
+	f := field.Accessor(dest)
+	if f.IsValid() && f.CanSet() {
 		conv := plan.converters[index]
 		if conv == nil {
 			conv = getConverter(value.Type(), f.Type())
@@ -601,7 +614,7 @@ func getModelValues(m *model.Model, value any, update bool) ([]string, []any) {
 			continue
 		}
 
-		fVal := val.Field(field.Index)
+		fVal := field.Accessor(val)
 		if !update && field.AutoTime && fVal.CanSet() {
 			fVal.Set(reflect.ValueOf(now))
 		}
@@ -624,7 +637,7 @@ func setPKValue(value any, pkField *model.Field, id int64) {
 	if v.Kind() == reflect.Ptr {
 		v = v.Elem()
 	}
-	f := v.Field(pkField.Index)
+	f := pkField.Accessor(v)
 	if f.CanSet() {
 		if f.Kind() == reflect.Int64 || f.Kind() == reflect.Int {
 			f.SetInt(id)

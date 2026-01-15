@@ -141,6 +141,7 @@ func (m *Model) parseFields(typ reflect.Type, baseIndex []int) error {
 			IsUnique:   tag.Unique,
 			Tag:        tagStr,
 		}
+		field.Accessor = m.createAccessor(field.NestedIdx)
 
 		m.Fields = append(m.Fields, field)
 		m.FieldMap[columnName] = field
@@ -150,6 +151,25 @@ func (m *Model) parseFields(typ reflect.Type, baseIndex []int) error {
 		}
 	}
 	return nil
+}
+
+func (m *Model) createAccessor(nestedIdx []int) Accessor {
+	return func(dest reflect.Value) reflect.Value {
+		f := dest
+		for _, i := range nestedIdx {
+			if f.Kind() == reflect.Ptr {
+				if f.IsNil() {
+					if !f.CanSet() {
+						return reflect.Value{}
+					}
+					f.Set(reflect.New(f.Type().Elem()))
+				}
+				f = f.Elem()
+			}
+			f = f.Field(i)
+		}
+		return f
+	}
 }
 
 func isRelationField(typ reflect.Type) bool {
