@@ -23,7 +23,7 @@ func (tx *Tx) Table(name string) *Query {
 	return tx.db.newQuery(tx).Table(name)
 }
 
-// Commit commits the transaction.
+// Commit finalizes the transaction, making all changes permanent in the database.
 func (tx *Tx) Commit() error {
 	if err := tx.sqlTx.Commit(); err != nil {
 		return fmt.Errorf("transaction commit failed: %w", err)

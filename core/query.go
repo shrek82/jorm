@@ -132,7 +132,8 @@ func getScanPlan(m *model.Model, columns []string) *scanPlan {
 	return plan
 }
 
-// NewQuery creates a new Query instance.
+// NewQuery creates a new Query instance with the specified DB, executor, and builder.
+// This is typically called internally by DB.Model, DB.Table, or DB.Raw.
 func NewQuery(db *DB, executor Executor, builder Builder) *Query {
 	return &Query{
 		db:       db,
@@ -166,6 +167,8 @@ func (q *Query) Alias(alias string) *Query {
 	return q
 }
 
+// Select specifies the columns to be retrieved by the query.
+// If not called, all columns (*) will be selected by default.
 func (q *Query) Select(columns ...string) *Query {
 	q.builder.Select(columns...)
 	return q
@@ -177,6 +180,7 @@ func (q *Query) Where(cond string, args ...any) *Query {
 	return q
 }
 
+// OrWhere adds an OR condition to the WHERE clause of the query.
 func (q *Query) OrWhere(cond string, args ...any) *Query {
 	q.builder.OrWhere(cond, args...)
 	return q
@@ -256,6 +260,7 @@ func (q *Query) Joins(query string, args ...any) *Query {
 	return q
 }
 
+// GroupBy adds a GROUP BY clause to the query for the specified columns.
 func (q *Query) GroupBy(columns ...string) *Query {
 	q.builder.GroupBy(columns...)
 	return q
@@ -293,7 +298,8 @@ func (q *Query) Find(dest any) error {
 	return q.executePreloads(dest)
 }
 
-// Count returns the number of records matching the query.
+// Count returns the total number of records matching the query.
+// It executes a "SELECT COUNT(*)" query and returns the result as an int64.
 func (q *Query) Count() (int64, error) {
 	defer PutBuilder(q.builder)
 	if q.err != nil {
@@ -312,6 +318,8 @@ func (q *Query) Count() (int64, error) {
 	return count, nil
 }
 
+// Sum calculates the sum of the specified numeric column for records matching the query.
+// It returns a float64 value and any error encountered.
 func (q *Query) Sum(column string) (float64, error) {
 	defer PutBuilder(q.builder)
 	if q.err != nil {
@@ -551,7 +559,8 @@ func setFieldValue(dest reflect.Value, field *model.Field, value reflect.Value, 
 	}
 }
 
-// InsertWithValidator performs an insertion with the given validators.
+// InsertWithValidator performs an insertion after successfully validating the model.
+// It returns the last inserted ID and any error encountered (including validation errors).
 func (q *Query) InsertWithValidator(value any, validators ...validator.Validator) (int64, error) {
 	for _, v := range validators {
 		if err := v(value); err != nil {
@@ -561,6 +570,9 @@ func (q *Query) InsertWithValidator(value any, validators ...validator.Validator
 	return q.Insert(value)
 }
 
+// Insert inserts a new record into the database based on the provided model instance.
+// It returns the last inserted ID and any error encountered.
+// It also handles BeforeInsert and AfterInsert hooks, and auto-populates time fields.
 func (q *Query) Insert(value any) (int64, error) {
 	defer PutBuilder(q.builder)
 	if q.err != nil {
@@ -656,8 +668,10 @@ func setPKValue(value any, pkField *model.Field, id int64) {
 	}
 }
 
-// BatchInsert inserts multiple records into the database.
-// values must be a slice of structs or pointers to structs.
+// BatchInsert inserts multiple records into the database in a single operation.
+// The values parameter must be a slice of structs or pointers to structs.
+// It returns the total number of rows affected and any error encountered.
+// It also handles BeforeInsert and AfterInsert hooks for each record.
 func (q *Query) BatchInsert(values any) (int64, error) {
 	defer PutBuilder(q.builder)
 	if q.err != nil {
@@ -742,7 +756,8 @@ func (q *Query) BatchInsert(values any) (int64, error) {
 	return totalAffected, nil
 }
 
-// UpdateWithValidator performs an update with the given validators.
+// UpdateWithValidator performs an update after successfully validating the data.
+// It returns the number of rows affected and any error encountered (including validation errors).
 func (q *Query) UpdateWithValidator(value any, validators ...validator.Validator) (int64, error) {
 	for _, v := range validators {
 		if err := v(value); err != nil {
@@ -752,7 +767,10 @@ func (q *Query) UpdateWithValidator(value any, validators ...validator.Validator
 	return q.Update(value)
 }
 
-// Update updates the record(s) matching the query with the provided data.
+// Update updates the records matching the query with the provided data.
+// The value parameter can be a struct (updates non-zero fields) or a map[string]any.
+// It returns the number of rows affected and any error encountered.
+// It handles BeforeUpdate and AfterUpdate hooks for struct updates.
 func (q *Query) Update(value any) (int64, error) {
 	defer PutBuilder(q.builder)
 	if q.err != nil {
@@ -815,7 +833,10 @@ func (q *Query) Update(value any) (int64, error) {
 	return rows, nil
 }
 
-// Delete deletes the record(s) matching the query.
+// Delete deletes the records matching the query.
+// If a model instance is provided, it uses its primary key for the deletion criteria.
+// It returns the number of rows affected and any error encountered.
+// It handles BeforeDelete and AfterDelete hooks if a model instance is provided.
 func (q *Query) Delete(value ...any) (int64, error) {
 	defer PutBuilder(q.builder)
 	if q.err != nil {

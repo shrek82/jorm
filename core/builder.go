@@ -10,44 +10,62 @@ import (
 )
 
 // Builder defines the interface for building SQL statements.
-// It abstracts the SQL generation process from the execution logic.
+// It provides a fluent API for constructing complex queries and handles
+// dialect-specific syntax like quoting and placeholders.
 type Builder interface {
+	// SetTable sets the target table for the SQL statement.
 	SetTable(name string) Builder
+	// Alias sets a table alias (e.g., "users AS u").
 	Alias(alias string) Builder
+	// Select specifies columns to retrieve (e.g., "id", "name").
 	Select(columns ...string) Builder
+	// Where adds an AND condition to the WHERE clause.
 	Where(cond string, args ...any) Builder
+	// OrWhere adds an OR condition to the WHERE clause.
 	OrWhere(cond string, args ...any) Builder
+	// WhereIn adds an IN condition for a column and a slice of values.
 	WhereIn(column string, values any) Builder
+	// Joins adds a raw JOIN clause (e.g., "JOIN orders ON orders.user_id = users.id").
 	Joins(query string, args ...any) Builder
+	// GroupBy adds columns for the GROUP BY clause.
 	GroupBy(columns ...string) Builder
+	// Having adds an AND condition to the HAVING clause.
 	Having(cond string, args ...any) Builder
+	// OrderBy adds columns for the ORDER BY clause (e.g., "id DESC").
 	OrderBy(columns ...string) Builder
+	// Limit sets the maximum number of rows to return.
 	Limit(n int) Builder
+	// Offset sets the number of rows to skip.
 	Offset(n int) Builder
+	// BuildSelect generates the final SELECT statement and its arguments.
 	BuildSelect() (string, []any)
+	// BuildInsert generates the final INSERT statement and its arguments.
 	BuildInsert(columns []string) (string, []any)
+	// BuildUpdate generates the final UPDATE statement and its arguments.
 	BuildUpdate(data map[string]any) (string, []any)
+	// BuildDelete generates the final DELETE statement and its arguments.
 	BuildDelete() (string, []any)
 }
 
 // sqlBuilder is the default implementation of the Builder interface.
+// It tracks query components and assembles them into a SQL string.
 type sqlBuilder struct {
-	dialect    dialect.Dialect
-	table      string
-	alias      string
-	selectCols []string
-	whereExpr  string
-	whereArgs  []any
-	joins      []string
-	joinArgs   []any
-	groupBy    []string
-	havingExpr string
-	havingArgs []any
-	orderBy    []string
-	limitSet   bool
-	limit      int
-	offsetSet  bool
-	offset     int
+	dialect    dialect.Dialect // Database-specific dialect
+	table      string          // Target table name
+	alias      string          // Table alias
+	selectCols []string        // Columns to select
+	whereExpr  string          // WHERE clause expression
+	whereArgs  []any           // WHERE clause arguments
+	joins      []string        // JOIN clauses
+	joinArgs   []any           // JOIN clause arguments
+	groupBy    []string        // GROUP BY columns
+	havingExpr string          // HAVING clause expression
+	havingArgs []any           // HAVING clause arguments
+	orderBy    []string        // ORDER BY columns
+	limitSet   bool            // Whether limit is set
+	limit      int             // LIMIT value
+	offsetSet  bool            // Whether offset is set
+	offset     int             // OFFSET value
 }
 
 var builderPool = sync.Pool{
@@ -63,6 +81,7 @@ func NewBuilder(d dialect.Dialect) Builder {
 	return b
 }
 
+// Reset clears all builder state and prepares it for a new query with the given dialect.
 func (b *sqlBuilder) Reset(d dialect.Dialect) {
 	b.dialect = d
 	b.table = ""
@@ -88,6 +107,7 @@ func (b *sqlBuilder) SetTable(name string) Builder {
 	return b
 }
 
+// Alias sets a table alias for the query.
 func (b *sqlBuilder) Alias(alias string) Builder {
 	b.alias = strings.TrimSpace(alias)
 	return b
@@ -113,6 +133,7 @@ func (b *sqlBuilder) Where(cond string, args ...any) Builder {
 	return b
 }
 
+// OrWhere adds an OR condition to the WHERE clause.
 func (b *sqlBuilder) OrWhere(cond string, args ...any) Builder {
 	if cond == "" {
 		return b
@@ -126,6 +147,7 @@ func (b *sqlBuilder) OrWhere(cond string, args ...any) Builder {
 	return b
 }
 
+// WhereIn adds an IN condition for the specified column and values.
 func (b *sqlBuilder) WhereIn(column string, values any) Builder {
 	v := reflect.ValueOf(values)
 	if !v.IsValid() {
@@ -157,6 +179,7 @@ func (b *sqlBuilder) WhereIn(column string, values any) Builder {
 	return b.Where(cond, args...)
 }
 
+// Joins adds a raw JOIN clause to the query.
 func (b *sqlBuilder) Joins(query string, args ...any) Builder {
 	if !isValidJoinClause(query) {
 		panic("invalid join clause: " + query)
@@ -171,6 +194,7 @@ func (b *sqlBuilder) GroupBy(columns ...string) Builder {
 	return b
 }
 
+// Having adds a condition to the HAVING clause.
 func (b *sqlBuilder) Having(cond string, args ...any) Builder {
 	if cond == "" {
 		return b

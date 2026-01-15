@@ -15,17 +15,23 @@ import (
 	"github.com/shrek82/jorm/pool"
 )
 
-// Options defines the configuration for the DB connection pool.
+// Options defines the configuration for the DB connection pool and its behavior.
 type Options struct {
-	MaxOpenConns    int
-	MaxIdleConns    int
+	// MaxOpenConns sets the maximum number of open connections to the database.
+	MaxOpenConns int
+	// MaxIdleConns sets the maximum number of connections in the idle connection pool.
+	MaxIdleConns int
+	// ConnMaxLifetime sets the maximum amount of time a connection may be reused.
 	ConnMaxLifetime time.Duration
-	MaxRetries      int           // Maximum number of retries for initial connection
-	RetryDelay      time.Duration // Initial delay between retries
+	// MaxRetries specifies the maximum number of retry attempts for the initial connection.
+	MaxRetries int
+	// RetryDelay defines the initial duration to wait between connection retry attempts.
+	RetryDelay time.Duration
 }
 
-// DB is the main entry point for the ORM.
-// It manages the database connection pool and provides methods to create queries.
+// DB is the central engine of the JORM ORM.
+// It manages the underlying connection pool, SQL dialect, and logging capabilities.
+// Use core.Open to initialize a new instance.
 type DB struct {
 	pool    pool.Pool
 	dialect dialect.Dialect
@@ -39,6 +45,9 @@ type DB struct {
 }
 
 // Open initializes a new DB instance with the given driver and DSN.
+// It sets up the dialect based on the driver and initializes the connection pool.
+// The opts parameter can be used to configure connection pool settings like MaxOpenConns.
+// If opts is nil, default settings are used.
 func Open(driver, dsn string, opts *Options) (*DB, error) {
 	d, ok := dialect.Get(driver)
 	if !ok {
@@ -101,7 +110,8 @@ func Open(driver, dsn string, opts *Options) (*DB, error) {
 	}, nil
 }
 
-// Close closes the database connection.
+// Close closes the database connection and releases any resources.
+// It should be called when the DB instance is no longer needed.
 func (db *DB) Close() error {
 	if err := db.pool.Close(); err != nil {
 		return fmt.Errorf("failed to close database: %w", err)
@@ -109,11 +119,14 @@ func (db *DB) Close() error {
 	return nil
 }
 
-// SetLogger sets a custom logger for the DB.
+// SetLogger sets a custom logger for the DB instance.
+// The logger will be used to record SQL queries, execution times, and errors.
 func (db *DB) SetLogger(l logger.Logger) {
 	db.logger = l
 }
 
+// checkHealth verifies if the database connection is currently in a cooldown period
+// due to recent connection failures.
 func (db *DB) checkHealth() error {
 	db.mu.RLock()
 	defer db.mu.RUnlock()
@@ -124,6 +137,8 @@ func (db *DB) checkHealth() error {
 	return nil
 }
 
+// reportError records a database error and triggers a cooldown period if the error
+// is connection-related. Providing nil clears the error state.
 func (db *DB) reportError(err error) {
 	if err == nil {
 		db.mu.Lock()
@@ -148,6 +163,8 @@ func (db *DB) reportError(err error) {
 	}
 }
 
+// newQuery creates a new Query instance associated with this DB.
+// It initializes the query builder and checks for database health.
 func (db *DB) newQuery(executor Executor) *Query {
 	builder := NewBuilder(db.dialect)
 	q := NewQuery(db, executor, builder)
@@ -158,21 +175,26 @@ func (db *DB) newQuery(executor Executor) *Query {
 }
 
 // Model starts a new query builder for the given model instance.
+// The value parameter can be a struct pointer or a slice of struct pointers.
+// JORM will automatically detect the table name and fields from the model.
 func (db *DB) Model(value any) *Query {
 	return db.newQuery(db.pool).Model(value)
 }
 
 // Table starts a new query builder for the given table name.
+// This is useful for performing operations on tables that don't have a corresponding model struct.
 func (db *DB) Table(name string) *Query {
 	return db.newQuery(db.pool).Table(name)
 }
 
-// Raw starts a new query with a raw SQL statement.
+// Raw starts a new query with a raw SQL statement and its arguments.
+// It bypasses the JORM query builder and allows for direct SQL execution.
 func (db *DB) Raw(sql string, args ...any) *Query {
 	return db.newQuery(db.pool).Raw(sql, args...)
 }
 
-// logSQL logs the SQL execution if a logger is set.
+// logSQL logs the SQL statement, its execution duration, and arguments.
+// It only logs if a logger has been configured for the DB.
 func (db *DB) logSQL(sql string, duration time.Duration, args ...any) {
 	if db.logger != nil {
 		db.logger.SQL(sql, duration, args...)
@@ -180,6 +202,8 @@ func (db *DB) logSQL(sql string, duration time.Duration, args ...any) {
 }
 
 // Exec executes a raw SQL statement without returning any rows.
+// It returns a sql.Result and any error encountered during execution.
+// It also handles health checks and error reporting.
 func (db *DB) Exec(sql string, args ...any) (sql.Result, error) {
 	if err := db.checkHealth(); err != nil {
 		return nil, err
@@ -195,7 +219,9 @@ func (db *DB) Exec(sql string, args ...any) (sql.Result, error) {
 	return res, nil
 }
 
-// Transaction executes a function within a database transaction.
+// Transaction executes the provided function within a database transaction.
+// If the function returns an error or panics, the transaction is automatically rolled back.
+// Otherwise, the transaction is committed.
 func (db *DB) Transaction(fn func(tx *Tx) error) (err error) {
 	if err := db.checkHealth(); err != nil {
 		return err
@@ -238,7 +264,8 @@ func (db *DB) Transaction(fn func(tx *Tx) error) (err error) {
 	return err
 }
 
-// HasTable checks if a table exists in the database.
+// HasTable checks if the specified table exists in the database.
+// It uses the dialect-specific implementation to perform the check.
 func (db *DB) HasTable(tableName string) (bool, error) {
 	sqlStr, args := db.dialect.HasTableSQL(tableName)
 	var count int
@@ -281,6 +308,8 @@ func (db *DB) AutoMigrate(values ...any) error {
 	return nil
 }
 
+// alterTableIfNeeded compares the model definition with the existing table schema
+// and adds any missing columns.
 func (db *DB) alterTableIfNeeded(m *model.Model) error {
 	sqlStr, args := db.dialect.GetColumnsSQL(m.TableName)
 	rows, err := db.pool.QueryContext(context.Background(), sqlStr, args...)
