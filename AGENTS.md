@@ -9,24 +9,32 @@ go build ./core
 go build -race ./...
 
 # Testing
-go test ./...
-go test -v ./...                    # Verbose
+go test ./...                        # All tests
+go test -v ./...                    # Verbose output
 go test -cover ./...                 # With coverage
-go test -race ./...                  # Race detector
-go test -v ./core -run TestDBOpen   # Specific test file
-go test -v ./core -run TestDBOpen/Success  # Specific test function
-go test -v ./query/...              # Specific package
+go test -race ./...                  # Race condition detection
+go test -run TestSpecific            # Run specific test by name
+go test -v ./tests -run TestGetModel # Run specific test in package
+go test -v ./tests -run TestGetModel/BasicModel  # Run specific sub-test
+go test -v ./tests/...               # Run all tests in package
 go test -coverprofile=coverage.out ./... && go tool cover -html=coverage.out
 
-# Linting
-go fmt ./...
-go vet ./...
-golangci-lint run
-go fmt ./... && go vet ./... && golangci-lint run
+# Single Test Examples (most commonly used):
+go test -v ./tests -run TestGetModel$           # Run exact test
+go test -v ./tests -run TestGetModel/Basic$     # Run specific sub-test
+go test -v ./core -run TestDBOpen$              # Test in core package
+go test -run TestModel                          # Run test across all packages
+
+# Linting & Formatting
+go fmt ./...                        # Format code
+go vet ./...                        # Static analysis
+golangci-lint run                   # Comprehensive linting
+go fmt ./... && go vet ./... && golangci-lint run  # All checks
 
 # Dependencies
-go mod tidy
-go mod graph
+go mod tidy                         # Clean dependencies
+go mod graph                        # Dependency graph
+go mod download                      # Download dependencies
 ```
 
 ## Code Style Guidelines
@@ -110,6 +118,34 @@ Keep concerns separate. Each component has a single responsibility.
 6. Run `go test ./...`
 7. Check coverage
 8. Update documentation if API changed
+
+## Project-Specific Patterns
+
+### Package Structure
+- **core/**: Main DB, Query, Transaction interfaces
+- **model/**: Model metadata, field mapping, tag parsing  
+- **dialect/**: Database-specific SQL generation
+- **logger/**: Logging abstraction
+- **pool/**: Connection pooling
+- **validator/**: Data validation rules
+- **tests/**: Integration and unit tests
+
+### Error Variables
+Use predefined error variables from `core/errors.go`:
+- `ErrRecordNotFound`, `ErrModelNotFound`, `ErrInvalidModel`
+- `ErrInvalidQuery`, `ErrRelationNotFound`, `ErrDuplicateKey`
+- `ErrForeignKey`, `ErrConnectionFailed`, `ErrInvalidSQL`
+
+### Model Tags
+Use `jorm` tags for field configuration:
+- `pk auto` for primary keys
+- `size:100` for field length
+- `unique`, `notnull` for constraints
+- `fk:Table.Field` for foreign keys
+- `auto_time`, `auto_update` for timestamps
+
+### Re-exports
+Main `jorm` package re-exports core types and validator rules for convenience.
 
 ## Notes
 
