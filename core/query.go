@@ -262,7 +262,7 @@ func (q *Query) queryRow(sqlStr string, args []any, dest any) error {
 	rows, err := q.executor.QueryContext(q.ctx, sqlStr, args...)
 	q.db.logSQL(sqlStr, time.Since(start), args...)
 	if err != nil {
-		return err
+		return fmt.Errorf("query execution failed: %w", err)
 	}
 	defer rows.Close()
 
@@ -272,18 +272,18 @@ func (q *Query) queryRow(sqlStr string, args []any, dest any) error {
 
 	columns, err := rows.Columns()
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to get columns: %w", err)
 	}
 
 	m, err := model.GetModel(dest)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to get model metadata: %w", err)
 	}
 
 	plan := getScanPlan(m, columns)
 
 	if err := q.scanRowWithPlan(rows, dest, plan); err != nil {
-		return err
+		return fmt.Errorf("row scan failed: %w", err)
 	}
 
 	// AfterFind hook
@@ -298,7 +298,7 @@ func (q *Query) queryRows(sqlStr string, args []any, dest any) error {
 	rows, err := q.executor.QueryContext(q.ctx, sqlStr, args...)
 	q.db.logSQL(sqlStr, time.Since(start), args...)
 	if err != nil {
-		return err
+		return fmt.Errorf("query execution failed: %w", err)
 	}
 	defer rows.Close()
 
@@ -312,7 +312,7 @@ func (q *Query) queryRows(sqlStr string, args []any, dest any) error {
 
 	columns, err := rows.Columns()
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to get columns: %w", err)
 	}
 
 	var m *model.Model
@@ -324,26 +324,29 @@ func (q *Query) queryRows(sqlStr string, args []any, dest any) error {
 		if plan == nil {
 			m, err = model.GetModel(item)
 			if err != nil {
-				return err
+				return fmt.Errorf("failed to get model metadata: %w", err)
 			}
 			plan = getScanPlan(m, columns)
 		}
 
 		if err := q.scanRowWithPlan(rows, item, plan); err != nil {
-			return err
+			return fmt.Errorf("row scan failed: %w", err)
 		}
 
 		// AfterFind hook
 		if h, ok := item.(AfterFinder); ok {
 			if err := h.AfterFind(); err != nil {
-				return err
+				return fmt.Errorf("AfterFind hook failed: %w", err)
 			}
 		}
 
 		sliceValue.Set(reflect.Append(sliceValue, reflect.ValueOf(item).Elem()))
 	}
 
-	return rows.Err()
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("rows iteration error: %w", err)
+	}
+	return nil
 }
 
 func (q *Query) scanRow(rows *sql.Rows, dest any) error {

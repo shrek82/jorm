@@ -44,6 +44,17 @@ func TestBuilder(t *testing.T) {
 		}
 	})
 
+	t.Run("JoinsInjection", func(t *testing.T) {
+		defer func() {
+			if r := recover(); r == nil {
+				t.Errorf("Expected panic for SQL injection in Joins")
+			}
+		}()
+
+		b := core.NewBuilder(d)
+		b.Joins("INNER JOIN users; DROP TABLE users; --")
+	})
+
 	t.Run("WhereIn", func(t *testing.T) {
 		b := core.NewBuilder(d)
 		b.SetTable("users").WhereIn("id", []int{1, 2, 3})

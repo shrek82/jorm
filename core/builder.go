@@ -146,9 +146,34 @@ func (b *sqlBuilder) WhereIn(column string, values any) Builder {
 }
 
 func (b *sqlBuilder) Joins(query string, args ...any) Builder {
+	if !isValidJoinClause(query) {
+		panic("invalid join clause: " + query)
+	}
 	b.joins = append(b.joins, query)
 	b.joinArgs = append(b.joinArgs, args...)
 	return b
+}
+
+func isValidJoinClause(query string) bool {
+	upper := strings.ToUpper(query)
+	// Check for forbidden characters/sequences that indicate multiple statements or comments
+	forbidden := []string{";", "--", "/*", "*/"}
+	for _, s := range forbidden {
+		if strings.Contains(upper, s) {
+			return false
+		}
+	}
+
+	// Check for dangerous SQL keywords
+	keywords := []string{"DROP ", "DELETE ", "UPDATE ", "INSERT ", "TRUNCATE ", "ALTER "}
+	for _, k := range keywords {
+		if strings.Contains(upper, k) {
+			return false
+		}
+	}
+
+	// A basic JOIN clause should contain "JOIN"
+	return strings.Contains(upper, "JOIN")
 }
 
 // OrderBy adds the ORDER BY clause.
