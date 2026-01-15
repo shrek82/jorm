@@ -1,0 +1,92 @@
+package dialect
+
+import (
+	"fmt"
+	"reflect"
+	"strings"
+
+	"github.com/shrek82/jorm/model"
+)
+
+// MySQL dialect implementation
+type mysql struct{}
+
+func (d *mysql) DataTypeOf(typ reflect.Type) string {
+	switch typ.Kind() {
+	case reflect.Bool:
+		return "boolean"
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uintptr:
+		return "int"
+	case reflect.Int64, reflect.Uint64:
+		return "bigint"
+	case reflect.Float32, reflect.Float64:
+		return "double"
+	case reflect.String:
+		return "varchar(255)"
+	case reflect.Struct:
+		if typ.Name() == "Time" {
+			return "datetime"
+		}
+	}
+	panic(fmt.Sprintf("invalid sql type %s (%s)", typ.Name(), typ.Kind()))
+}
+
+func (d *mysql) Quote(name string) string {
+	return fmt.Sprintf("`%s`", name)
+}
+
+func (d *mysql) InsertSQL(table string, columns []string) (string, []any) {
+	var placeholders []string
+	for range columns {
+		placeholders = append(placeholders, "?")
+	}
+	sql := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)",
+		d.Quote(table),
+		strings.Join(columns, ", "),
+		strings.Join(placeholders, ", "),
+	)
+	return sql, nil
+}
+
+func (d *mysql) CreateTableSQL(m *model.Model) (string, []any) {
+	var columns []string
+	for _, field := range m.Fields {
+		column := fmt.Sprintf("%s %s", d.Quote(field.Column), d.DataTypeOf(field.Type))
+		if field.IsPK {
+			column += " PRIMARY KEY"
+		}
+		if field.IsAuto {
+			column += " AUTO_INCREMENT"
+		}
+		columns = append(columns, column)
+	}
+	sql := fmt.Sprintf("CREATE TABLE %s (%s)", d.Quote(m.TableName), strings.Join(columns, ", "))
+	return sql, nil
+}
+
+func (d *mysql) HasTableSQL(tableName string) (string, []any) {
+	return "SELECT count(*) FROM information_schema.tables WHERE table_name = ?", []any{tableName}
+}
+
+func (d *mysql) BatchInsertSQL(table string, columns []string, count int) (string, []any) {
+	var rowPlaceholders []string
+	for i := 0; i < count; i++ {
+		var placeholders []string
+		for range columns {
+			placeholders = append(placeholders, "?")
+		}
+		rowPlaceholders = append(rowPlaceholders, "("+strings.Join(placeholders, ", ")+")")
+	}
+
+	sql := fmt.Sprintf("INSERT INTO %s (%s) VALUES %s",
+		d.Quote(table),
+		strings.Join(columns, ", "),
+		strings.Join(rowPlaceholders, ", "),
+	)
+	return sql, nil
+}
+
+func (d *mysql) Placeholder(index int) string {
+	return "?"
+}
