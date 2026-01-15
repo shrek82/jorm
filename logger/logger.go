@@ -42,6 +42,7 @@ type Logger interface {
 	SetLevel(level LogLevel)
 	SetFormat(format LogFormat)
 	SetOutput(w io.Writer)
+	SetLevelOutput(level LogLevel, w io.Writer)
 	WithFields(fields map[string]any) Logger
 	Info(format string, args ...any)
 	Warn(format string, args ...any)
@@ -51,10 +52,11 @@ type Logger interface {
 
 // baseLogger contains common logging functionality
 type baseLogger struct {
-	level  LogLevel
-	format LogFormat
-	writer io.Writer
-	fields map[string]any
+	level        LogLevel
+	format       LogFormat
+	writer       io.Writer
+	levelWriters map[LogLevel]io.Writer
+	fields       map[string]any
 }
 
 func (l *baseLogger) SetLevel(level LogLevel) {
@@ -69,16 +71,28 @@ func (l *baseLogger) SetOutput(w io.Writer) {
 	l.writer = w
 }
 
+func (l *baseLogger) SetLevelOutput(level LogLevel, w io.Writer) {
+	if l.levelWriters == nil {
+		l.levelWriters = make(map[LogLevel]io.Writer)
+	}
+	l.levelWriters[level] = w
+}
+
 func (l *baseLogger) clone() *baseLogger {
 	newFields := make(map[string]any, len(l.fields))
 	for k, v := range l.fields {
 		newFields[k] = v
 	}
+	newLevelWriters := make(map[LogLevel]io.Writer, len(l.levelWriters))
+	for k, v := range l.levelWriters {
+		newLevelWriters[k] = v
+	}
 	return &baseLogger{
-		level:  l.level,
-		format: l.format,
-		writer: l.writer,
-		fields: newFields,
+		level:        l.level,
+		format:       l.format,
+		writer:       l.writer,
+		levelWriters: newLevelWriters,
+		fields:       newFields,
 	}
 }
 
@@ -91,10 +105,11 @@ type stdLogger struct {
 func NewStdLogger() Logger {
 	return &stdLogger{
 		baseLogger: baseLogger{
-			level:  LogLevelInfo,
-			format: LogFormatText,
-			writer: os.Stdout,
-			fields: make(map[string]any),
+			level:        LogLevelInfo,
+			format:       LogFormatText,
+			writer:       os.Stdout,
+			levelWriters: make(map[LogLevel]io.Writer),
+			fields:       make(map[string]any),
 		},
 	}
 }
@@ -139,6 +154,24 @@ func (l *stdLogger) SQL(sql string, duration time.Duration, args ...any) {
 
 func (l *stdLogger) log(level string, format string, args ...any) {
 	now := time.Now()
+	msgLevel := l.parseLevel(level)
+
+	// Determine all writers for this message
+	var writers []io.Writer
+	if l.writer != nil {
+		writers = append(writers, l.writer)
+	}
+	if w, ok := l.levelWriters[msgLevel]; ok && w != nil {
+		// If it's the same as default writer, don't duplicate
+		if w != l.writer {
+			writers = append(writers, w)
+		}
+	}
+
+	if len(writers) == 0 {
+		return
+	}
+
 	if l.format == LogFormatJSON {
 		data := make(map[string]any)
 		for k, v := range l.fields {
@@ -163,7 +196,10 @@ func (l *stdLogger) log(level string, format string, args ...any) {
 			}
 		}
 
-		json.NewEncoder(l.writer).Encode(data)
+		jsonData, _ := json.Marshal(data)
+		for _, w := range writers {
+			w.Write(append(jsonData, '\n'))
+		}
 	} else {
 		msg := ""
 		if format != "" {
@@ -181,7 +217,25 @@ func (l *stdLogger) log(level string, format string, args ...any) {
 		if len(l.fields) > 0 {
 			fieldStr = fmt.Sprintf(" fields: %v", l.fields)
 		}
-		fmt.Fprintf(l.writer, "[JORM] %s %s: %s%s\n", now.Format("2006-01-02 15:04:05"), level, msg, fieldStr)
+		logLine := fmt.Sprintf("[JORM] %s %s: %s%s\n", now.Format("2006-01-02 15:04:05"), level, msg, fieldStr)
+		for _, w := range writers {
+			// Don't use color for non-terminal outputs if possible, but for simplicity we keep it here
+			// A better implementation would check if w is a terminal
+			w.Write([]byte(logLine))
+		}
+	}
+}
+
+func (l *stdLogger) parseLevel(level string) LogLevel {
+	switch strings.ToUpper(level) {
+	case "ERROR":
+		return LogLevelError
+	case "WARN":
+		return LogLevelWarn
+	case "INFO", "SQL":
+		return LogLevelInfo
+	default:
+		return LogLevelInfo
 	}
 }
 

@@ -81,4 +81,51 @@ func TestStructuredLogger(t *testing.T) {
 			t.Errorf("Missing duration in SQL JSON output")
 		}
 	})
+
+	t.Run("LevelOutput", func(t *testing.T) {
+		mainBuf := &bytes.Buffer{}
+		errorBuf := &bytes.Buffer{}
+		l := logger.NewStdLogger()
+		l.SetOutput(mainBuf)
+		l.SetLevelOutput(logger.LogLevelError, errorBuf)
+
+		l.Info("this is info")
+		l.Error("this is error")
+
+		mainOutput := mainBuf.String()
+		errorOutput := errorBuf.String()
+
+		if !strings.Contains(mainOutput, "INFO") || !strings.Contains(mainOutput, "this is info") {
+			t.Errorf("Main buffer missing INFO: %s", mainOutput)
+		}
+		if !strings.Contains(mainOutput, "ERROR") || !strings.Contains(mainOutput, "this is error") {
+			t.Errorf("Main buffer missing ERROR: %s", mainOutput)
+		}
+
+		if strings.Contains(errorOutput, "INFO") {
+			t.Errorf("Error buffer should not contain INFO: %s", errorOutput)
+		}
+		if !strings.Contains(errorOutput, "ERROR") || !strings.Contains(errorOutput, "this is error") {
+			t.Errorf("Error buffer missing ERROR: %s", errorOutput)
+		}
+	})
+
+	t.Run("LevelOutputOnly", func(t *testing.T) {
+		errorBuf := &bytes.Buffer{}
+		l := logger.NewStdLogger()
+		l.SetOutput(nil) // Disable default output
+		l.SetLevelOutput(logger.LogLevelError, errorBuf)
+
+		l.Info("this is info")
+		l.Error("this is error")
+
+		errorOutput := errorBuf.String()
+
+		if strings.Contains(errorOutput, "INFO") {
+			t.Errorf("Error buffer should not contain INFO: %s", errorOutput)
+		}
+		if !strings.Contains(errorOutput, "ERROR") || !strings.Contains(errorOutput, "this is error") {
+			t.Errorf("Error buffer missing ERROR: %s", errorOutput)
+		}
+	})
 }
