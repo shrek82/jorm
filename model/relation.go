@@ -48,25 +48,33 @@ var (
 
 func GetRelation(m *Model, name string) (*Relation, error) {
 	key := m.TableName + "." + name
-	version := relationCacheVersion.Load()
+	
+	for {
+		version := relationCacheVersion.Load()
 
-	if cached, ok := relationCache.Load(key); ok {
-		rel := cached.(*relationWithVersion)
-		if rel.version == version {
-			return rel.relation, nil
+		if cached, ok := relationCache.Load(key); ok {
+			rel := cached.(*relationWithVersion)
+			if rel.version == version {
+				return rel.relation, nil
+			}
 		}
-	}
 
-	relation, err := parseRelationFromTyp(m.OriginalType, name)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get relation %s for model %s: %w", name, m.TableName, err)
-	}
+		relation, err := parseRelationFromTyp(m.OriginalType, name)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get relation %s for model %s: %w", name, m.TableName, err)
+		}
 
-	relationCache.Store(key, &relationWithVersion{
-		relation: relation,
-		version:  version,
-	})
-	return relation, nil
+		// Double check version hasn't changed before storing
+		if relationCacheVersion.Load() != version {
+			continue // Version changed, retry
+		}
+
+		relationCache.Store(key, &relationWithVersion{
+			relation: relation,
+			version:  version,
+		})
+		return relation, nil
+	}
 }
 
 func parseRelationFromTyp(typ reflect.Type, name string) (*Relation, error) {

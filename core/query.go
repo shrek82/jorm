@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/shrek82/jorm/logger"
 	"github.com/shrek82/jorm/model"
 )
 
@@ -31,6 +32,7 @@ type Query struct {
 	rawSQL   string
 	rawArgs  []any
 	preloads []*preloadConfig
+	logger   logger.Logger
 }
 
 type scanPlan struct {
@@ -136,6 +138,7 @@ func NewQuery(db *DB, executor Executor, builder Builder) *Query {
 		executor: executor,
 		builder:  builder,
 		ctx:      context.Background(),
+		logger:   db.logger,
 	}
 }
 
@@ -205,6 +208,22 @@ func (q *Query) OrderBy(columns ...string) *Query {
 func (q *Query) WithContext(ctx context.Context) *Query {
 	q.ctx = ctx
 	return q
+}
+
+// WithFields adds structured fields to the query's logger.
+func (q *Query) WithFields(fields map[string]any) *Query {
+	if q.logger != nil {
+		q.logger = q.logger.WithFields(fields)
+	}
+	return q
+}
+
+func (q *Query) logSQL(sql string, duration time.Duration, args ...any) {
+	if q.logger != nil {
+		q.logger.SQL(sql, duration, args...)
+	} else if q.db != nil {
+		q.db.logSQL(sql, duration, args...)
+	}
 }
 
 // Raw sets a raw SQL query and its arguments.
@@ -285,7 +304,7 @@ func (q *Query) Count() (int64, error) {
 	var count int64
 	start := time.Now()
 	err := q.executor.QueryRowContext(q.ctx, sqlStr, args...).Scan(&count)
-	q.db.logSQL(sqlStr, time.Since(start), args...)
+	q.logSQL(sqlStr, time.Since(start), args...)
 	if err != nil {
 		return 0, fmt.Errorf("Count failed: %w", err)
 	}
@@ -304,7 +323,7 @@ func (q *Query) Sum(column string) (float64, error) {
 	var sum sql.NullFloat64
 	start := time.Now()
 	err := q.executor.QueryRowContext(q.ctx, sqlStr, args...).Scan(&sum)
-	q.db.logSQL(sqlStr, time.Since(start), args...)
+	q.logSQL(sqlStr, time.Since(start), args...)
 	if err != nil {
 		return 0, fmt.Errorf("Sum failed for column %s: %w", column, err)
 	}
@@ -325,7 +344,7 @@ func (q *Query) Scan(dest any) error {
 func (q *Query) queryRow(sqlStr string, args []any, dest any) error {
 	start := time.Now()
 	rows, err := q.executor.QueryContext(q.ctx, sqlStr, args...)
-	q.db.logSQL(sqlStr, time.Since(start), args...)
+	q.logSQL(sqlStr, time.Since(start), args...)
 	if err != nil {
 		return fmt.Errorf("query execution failed: %w", err)
 	}
@@ -361,7 +380,7 @@ func (q *Query) queryRow(sqlStr string, args []any, dest any) error {
 func (q *Query) queryRows(sqlStr string, args []any, dest any) error {
 	start := time.Now()
 	rows, err := q.executor.QueryContext(q.ctx, sqlStr, args...)
-	q.db.logSQL(sqlStr, time.Since(start), args...)
+	q.logSQL(sqlStr, time.Since(start), args...)
 	if err != nil {
 		return fmt.Errorf("query execution failed: %w", err)
 	}
@@ -528,7 +547,7 @@ func (q *Query) Insert(value any) (int64, error) {
 
 	start := time.Now()
 	res, err := q.executor.ExecContext(q.ctx, sqlStr, append(vals, args...)...)
-	q.db.logSQL(sqlStr, time.Since(start), append(vals, args...)...)
+	q.logSQL(sqlStr, time.Since(start), append(vals, args...)...)
 	if err != nil {
 		return 0, fmt.Errorf("Insert execution failed: %w", err)
 	}
@@ -662,7 +681,7 @@ func (q *Query) BatchInsert(values any) (int64, error) {
 
 	start := time.Now()
 	res, err := q.executor.ExecContext(q.ctx, sqlStr, args...)
-	q.db.logSQL(sqlStr, time.Since(start), args...)
+	q.logSQL(sqlStr, time.Since(start), args...)
 	if err != nil {
 		return 0, err
 	}
@@ -726,7 +745,7 @@ func (q *Query) Update(value any) (int64, error) {
 
 	start := time.Now()
 	res, err := q.executor.ExecContext(q.ctx, sqlStr, args...)
-	q.db.logSQL(sqlStr, time.Since(start), args...)
+	q.logSQL(sqlStr, time.Since(start), args...)
 	if err != nil {
 		return 0, fmt.Errorf("Update execution failed: %w", err)
 	}
@@ -788,7 +807,7 @@ func (q *Query) Delete(value ...any) (int64, error) {
 
 	start := time.Now()
 	res, err := q.executor.ExecContext(q.ctx, sqlStr, args...)
-	q.db.logSQL(sqlStr, time.Since(start), args...)
+	q.logSQL(sqlStr, time.Since(start), args...)
 	if err != nil {
 		return 0, fmt.Errorf("Delete execution failed: %w", err)
 	}
