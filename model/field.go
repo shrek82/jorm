@@ -10,6 +10,7 @@ type Field struct {
 	Column     string       // DB column name
 	Type       reflect.Type // Field type
 	Index      int          // Struct field index for fast access
+	NestedIdx  []int        // Nested field index for embedded structs
 	IsPK       bool         // Is primary key
 	IsAuto     bool         // Is auto-increment
 	AutoTime   bool         // Set time on insert

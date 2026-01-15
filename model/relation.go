@@ -3,7 +3,6 @@ package model
 import (
 	"fmt"
 	"reflect"
-	"strings"
 	"sync"
 )
 
@@ -90,7 +89,7 @@ func parseRelationFromField(typ reflect.Type, field reflect.StructField) (*Relat
 	switch relationType {
 	case RelationHasMany, RelationHasOne:
 		if tag.ForeignKey == "" {
-			tag.ForeignKey = typ.Name() + "_id"
+			tag.ForeignKey = camelToSnake(typ.Name()) + "_id"
 		}
 		relation.ForeignKey = tag.ForeignKey
 		if tag.References == "" {
@@ -101,7 +100,7 @@ func parseRelationFromField(typ reflect.Type, field reflect.StructField) (*Relat
 
 	case RelationBelongsTo:
 		if tag.ForeignKey == "" {
-			tag.ForeignKey = field.Name + "_id"
+			tag.ForeignKey = camelToSnake(field.Name) + "_id"
 		}
 		relation.ForeignKey = tag.ForeignKey
 		if tag.References == "" {
@@ -117,13 +116,20 @@ func parseRelationFromField(typ reflect.Type, field reflect.StructField) (*Relat
 		relation.JoinTable = tag.JoinTable
 
 		if tag.JoinFK == "" {
-			tag.JoinFK = typ.Name() + "_id"
+			tag.JoinFK = camelToSnake(typ.Name()) + "_id"
 		}
 		relation.JoinFK = tag.JoinFK
 
 		if tag.JoinRef == "" {
-			joinTableName := strings.TrimSuffix(tag.JoinTable, "s")
-			relation.JoinRef = joinTableName + "_id"
+			// Try to guess JoinRef from the field type (slice element type)
+			elemType := field.Type
+			if elemType.Kind() == reflect.Slice {
+				elemType = elemType.Elem()
+			}
+			if elemType.Kind() == reflect.Ptr {
+				elemType = elemType.Elem()
+			}
+			relation.JoinRef = camelToSnake(elemType.Name()) + "_id"
 		} else {
 			relation.JoinRef = tag.JoinRef
 		}
@@ -164,7 +170,7 @@ func parseRelation(m *Model, field *Field) (*Relation, error) {
 
 	case RelationBelongsTo:
 		if tag.ForeignKey == "" {
-			tag.ForeignKey = field.Name + "_id"
+			tag.ForeignKey = camelToSnake(field.Name) + "_id"
 		}
 		relation.ForeignKey = tag.ForeignKey
 		if tag.References == "" {
@@ -185,8 +191,15 @@ func parseRelation(m *Model, field *Field) (*Relation, error) {
 		relation.JoinFK = tag.JoinFK
 
 		if tag.JoinRef == "" {
-			joinTableName := strings.TrimSuffix(tag.JoinTable, "s")
-			relation.JoinRef = joinTableName + "_id"
+			// Try to guess JoinRef from the field type
+			elemType := field.Type
+			if elemType.Kind() == reflect.Slice {
+				elemType = elemType.Elem()
+			}
+			if elemType.Kind() == reflect.Ptr {
+				elemType = elemType.Elem()
+			}
+			relation.JoinRef = camelToSnake(elemType.Name()) + "_id"
 		} else {
 			relation.JoinRef = tag.JoinRef
 		}

@@ -17,7 +17,7 @@ type PreloadUser struct {
 	UpdatedAt time.Time       `jorm:"auto_update"`
 	Orders    []PreloadOrder  `jorm:"fk:UserID;relation:has_many"`
 	Profile   *PreloadProfile `jorm:"fk:UserID;relation:has_one"`
-	Roles     []PreloadRole   `jorm:"many_many:preload_user_roles"`
+	Roles     []PreloadRole   `jorm:"many_many:preload_user_role;join_fk:user_id;join_ref:role_id"`
 }
 
 type PreloadOrder struct {
@@ -28,7 +28,7 @@ type PreloadOrder struct {
 	CreatedAt time.Time        `jorm:"auto_time"`
 	UpdatedAt time.Time        `jorm:"auto_update"`
 	User      *PreloadUser     `jorm:"fk:UserID;relation:belongs_to"`
-	Products  []PreloadProduct `jorm:"fk:OrderID;relation:has_many"`
+	Products  []PreloadProduct `jorm:"many_many:preload_order_product;join_fk:order_id;join_ref:product_id"`
 }
 
 type PreloadProduct struct {
@@ -82,8 +82,8 @@ func setupPreloadDB(t *testing.T) *core.DB {
 }
 
 func cleanupPreloadDB(db *core.DB) {
-	db.Exec("DELETE FROM preload_order_products")
-	db.Exec("DELETE FROM preload_user_roles")
+	db.Exec("DELETE FROM preload_order_product")
+	db.Exec("DELETE FROM preload_user_role")
 	db.Exec("DELETE FROM preload_products")
 	db.Exec("DELETE FROM preload_orders")
 	db.Exec("DELETE FROM preload_profiles")
@@ -592,12 +592,12 @@ func TestJoinsInner(t *testing.T) {
 		t.Fatalf("Failed to insert order: %v", err)
 	}
 
-	type OrderWithUser struct {
+	type OrderWithUserInner struct {
 		PreloadOrder
 		UserName string `jorm:"column:user_name"`
 	}
 
-	var results []OrderWithUser
+	var results []OrderWithUserInner
 	err = db.Model(&PreloadOrder{}).
 		Select("preload_order.*", "preload_user.name as user_name").
 		Joins("preload_user", "INNER", "preload_user.id = preload_order.user_id").

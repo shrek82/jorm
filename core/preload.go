@@ -105,11 +105,21 @@ func (e *preloadExecutor) execute(mainModel *model.Model, dest any, config *prel
 
 func (e *preloadExecutor) executeHasRelation(mainModel *model.Model, dest any, relation *model.Relation, config *preloadConfig) error {
 	destValue := reflect.ValueOf(dest)
-	if destValue.Kind() != reflect.Ptr || destValue.Elem().Kind() != reflect.Slice {
+	if destValue.Kind() != reflect.Ptr {
 		return nil
 	}
 
-	sliceValue := destValue.Elem()
+	var sliceValue reflect.Value
+	isSlice := destValue.Elem().Kind() == reflect.Slice
+
+	if isSlice {
+		sliceValue = destValue.Elem()
+	} else {
+		// Create a temporary slice for processing
+		sliceValue = reflect.MakeSlice(reflect.SliceOf(destValue.Type().Elem()), 1, 1)
+		sliceValue.Index(0).Set(destValue.Elem())
+	}
+
 	if sliceValue.Len() == 0 {
 		return nil
 	}
@@ -133,22 +143,51 @@ func (e *preloadExecutor) executeHasRelation(mainModel *model.Model, dest any, r
 		return err
 	}
 
-	return e.mapHasRelation(sliceValue, relation, pkField, relatedData)
+	if isSlice {
+		return e.mapHasRelation(sliceValue, relation, pkField, relatedData)
+	} else {
+		// Map back to the single object
+		err := e.mapHasRelation(sliceValue, relation, pkField, relatedData)
+		if err == nil {
+			destValue.Elem().Set(sliceValue.Index(0))
+		}
+		return err
+	}
 }
 
 func (e *preloadExecutor) executeBelongsTo(mainModel *model.Model, dest any, relation *model.Relation, config *preloadConfig) error {
 	destValue := reflect.ValueOf(dest)
-	if destValue.Kind() != reflect.Ptr || destValue.Elem().Kind() != reflect.Slice {
+	if destValue.Kind() != reflect.Ptr {
 		return nil
 	}
 
-	sliceValue := destValue.Elem()
+	var sliceValue reflect.Value
+	isSlice := destValue.Elem().Kind() == reflect.Slice
+
+	if isSlice {
+		sliceValue = destValue.Elem()
+	} else {
+		sliceValue = reflect.MakeSlice(reflect.SliceOf(destValue.Type().Elem()), 1, 1)
+		sliceValue.Index(0).Set(destValue.Elem())
+	}
+
 	if sliceValue.Len() == 0 {
 		return nil
 	}
 
-	fkField, ok := mainModel.FieldMap[relation.ForeignKey]
-	if !ok {
+	var fkField *model.Field
+	if field, ok := mainModel.FieldMap[relation.ForeignKey]; ok {
+		fkField = field
+	} else {
+		for _, f := range mainModel.Fields {
+			if f.Name == relation.ForeignKey {
+				fkField = f
+				break
+			}
+		}
+	}
+
+	if fkField == nil {
 		return nil
 	}
 
@@ -166,16 +205,33 @@ func (e *preloadExecutor) executeBelongsTo(mainModel *model.Model, dest any, rel
 		return err
 	}
 
-	return e.mapBelongsTo(sliceValue, relation, fkField, relatedData)
+	if isSlice {
+		return e.mapBelongsTo(sliceValue, relation, fkField, relatedData)
+	} else {
+		err := e.mapBelongsTo(sliceValue, relation, fkField, relatedData)
+		if err == nil {
+			destValue.Elem().Set(sliceValue.Index(0))
+		}
+		return err
+	}
 }
 
 func (e *preloadExecutor) executeManyToMany(mainModel *model.Model, dest any, relation *model.Relation, config *preloadConfig) error {
 	destValue := reflect.ValueOf(dest)
-	if destValue.Kind() != reflect.Ptr || destValue.Elem().Kind() != reflect.Slice {
+	if destValue.Kind() != reflect.Ptr {
 		return nil
 	}
 
-	sliceValue := destValue.Elem()
+	var sliceValue reflect.Value
+	isSlice := destValue.Elem().Kind() == reflect.Slice
+
+	if isSlice {
+		sliceValue = destValue.Elem()
+	} else {
+		sliceValue = reflect.MakeSlice(reflect.SliceOf(destValue.Type().Elem()), 1, 1)
+		sliceValue.Index(0).Set(destValue.Elem())
+	}
+
 	if sliceValue.Len() == 0 {
 		return nil
 	}
@@ -199,7 +255,15 @@ func (e *preloadExecutor) executeManyToMany(mainModel *model.Model, dest any, re
 		return err
 	}
 
-	return e.mapManyToMany(sliceValue, relation, pkField, relatedData)
+	if isSlice {
+		return e.mapManyToMany(sliceValue, relation, pkField, relatedData)
+	} else {
+		err := e.mapManyToMany(sliceValue, relation, pkField, relatedData)
+		if err == nil {
+			destValue.Elem().Set(sliceValue.Index(0))
+		}
+		return err
+	}
 }
 
 func (e *preloadExecutor) executeNested(mainModel *model.Model, dest any, relation *model.Relation, config *preloadConfig) error {
@@ -272,7 +336,19 @@ func (e *preloadExecutor) queryHasRelationData(relation *model.Relation, ids []a
 	builder := NewBuilder(e.db.dialect)
 	builder.Select("*")
 	builder.SetTable(relation.Model.TableName)
-	builder.WhereIn(relation.ForeignKey, ids)
+
+	columnName := relation.ForeignKey
+	if field, ok := relation.Model.FieldMap[columnName]; ok {
+		columnName = field.Column
+	} else {
+		for _, f := range relation.Model.Fields {
+			if f.Name == columnName {
+				columnName = f.Column
+				break
+			}
+		}
+	}
+	builder.WhereIn(columnName, ids)
 
 	if config.builder != nil {
 		tempQuery := &Query{
@@ -297,12 +373,12 @@ func (e *preloadExecutor) queryHasRelationData(relation *model.Relation, ids []a
 	result := make(map[any][]any)
 
 	for rows.Next() {
-		item := reflect.New(relationModelElementType(relation.Model)).Interface()
+		item := reflect.New(relation.Model.OriginalType).Interface()
 		if err := e.scanRow(rows, item); err != nil {
 			return nil, err
 		}
 
-		fkValue := getFieldValue(item, relation.ForeignKey)
+		fkValue := getFieldValue(item, columnName)
 		result[fkValue] = append(result[fkValue], item)
 	}
 
@@ -313,7 +389,19 @@ func (e *preloadExecutor) queryBelongsToData(relation *model.Relation, ids []any
 	builder := NewBuilder(e.db.dialect)
 	builder.Select("*")
 	builder.SetTable(relation.Model.TableName)
-	builder.WhereIn(relation.References, ids)
+
+	columnName := relation.References
+	if field, ok := relation.Model.FieldMap[columnName]; ok {
+		columnName = field.Column
+	} else {
+		for _, f := range relation.Model.Fields {
+			if f.Name == columnName {
+				columnName = f.Column
+				break
+			}
+		}
+	}
+	builder.WhereIn(columnName, ids)
 
 	if config.builder != nil {
 		tempQuery := &Query{
@@ -338,12 +426,12 @@ func (e *preloadExecutor) queryBelongsToData(relation *model.Relation, ids []any
 	result := make(map[any]any)
 
 	for rows.Next() {
-		item := reflect.New(relationModelElementType(relation.Model)).Interface()
+		item := reflect.New(relation.Model.OriginalType).Interface()
 		if err := e.scanRow(rows, item); err != nil {
 			return nil, err
 		}
 
-		pkValue := getFieldValue(item, relation.References)
+		pkValue := getFieldValue(item, columnName)
 		result[pkValue] = item
 	}
 
@@ -353,8 +441,8 @@ func (e *preloadExecutor) queryBelongsToData(relation *model.Relation, ids []any
 func (e *preloadExecutor) queryManyToManyData(relation *model.Relation, ids []any, config *preloadConfig) (map[any][]any, error) {
 	joinQuery := NewBuilder(e.db.dialect)
 	joinQuery.Select("jt."+relation.JoinFK, "jt."+relation.JoinRef)
-	joinQuery.SetTable(relation.JoinTable)
-	joinQuery.WhereIn(relation.JoinFK, ids)
+	joinQuery.SetTable(relation.JoinTable).Alias("jt")
+	joinQuery.WhereIn("jt."+relation.JoinFK, ids)
 
 	sqlStr, args := joinQuery.BuildSelect()
 	PutBuilder(joinQuery)
@@ -386,7 +474,9 @@ func (e *preloadExecutor) queryManyToManyData(relation *model.Relation, ids []an
 	builder := NewBuilder(e.db.dialect)
 	builder.Select("*")
 	builder.SetTable(relation.Model.TableName)
-	builder.WhereIn(relation.Model.PKField.Column, allRefValues)
+
+	pkColumn := relation.Model.PKField.Column
+	builder.WhereIn(pkColumn, allRefValues)
 
 	if config.builder != nil {
 		tempQuery := &Query{
@@ -410,11 +500,11 @@ func (e *preloadExecutor) queryManyToManyData(relation *model.Relation, ids []an
 
 	refToData := make(map[any]any)
 	for dataRows.Next() {
-		item := reflect.New(relationModelElementType(relation.Model)).Interface()
+		item := reflect.New(relation.Model.OriginalType).Interface()
 		if err := e.scanRow(dataRows, item); err != nil {
 			return nil, err
 		}
-		pkValue := getFieldValue(item, relation.Model.PKField.Column)
+		pkValue := getFieldValue(item, pkColumn)
 		refToData[pkValue] = item
 	}
 
@@ -578,7 +668,8 @@ func (e *preloadExecutor) scanRow(rows *sql.Rows, dest any) error {
 	destValue := reflect.ValueOf(dest).Elem()
 	for i, field := range plan.fields {
 		if field != nil {
-			destValue.Field(field.Index).Set(reflect.ValueOf(values[i]).Elem())
+			val := reflect.ValueOf(values[i]).Elem()
+			setFieldValue(destValue, field, val)
 		}
 	}
 
@@ -586,35 +677,29 @@ func (e *preloadExecutor) scanRow(rows *sql.Rows, dest any) error {
 }
 
 func getRelationFieldType(m *model.Model, fieldName string) reflect.Type {
-	for _, field := range m.Fields {
-		if field.Name == fieldName {
-			t := field.Type
-			if t.Kind() == reflect.Ptr {
-				t = t.Elem()
-			}
-			if t.Kind() == reflect.Slice {
-				t = t.Elem()
-				if t.Kind() == reflect.Ptr {
-					t = t.Elem()
-				}
-			}
-			return t
+	if field, ok := m.OriginalType.FieldByName(fieldName); ok {
+		t := field.Type
+		for t.Kind() == reflect.Ptr {
+			t = t.Elem()
 		}
+		if t.Kind() == reflect.Slice {
+			t = t.Elem()
+			for t.Kind() == reflect.Ptr {
+				t = t.Elem()
+			}
+		}
+		return t
 	}
 	return nil
 }
 
 func relationModelElementType(m *model.Model) reflect.Type {
-	if len(m.Fields) > 0 {
-		_ = reflect.StructOf
-		return reflect.TypeOf(struct{}{}).Elem()
-	}
-	return reflect.TypeOf(struct{}{})
+	return m.OriginalType
 }
 
 func getFieldValue(item any, columnName string) any {
 	v := reflect.ValueOf(item)
-	if v.Kind() == reflect.Ptr {
+	for v.Kind() == reflect.Ptr {
 		v = v.Elem()
 	}
 
@@ -624,13 +709,32 @@ func getFieldValue(item any, columnName string) any {
 	}
 
 	if field, ok := m.FieldMap[columnName]; ok {
+		if len(field.NestedIdx) > 0 {
+			return v.FieldByIndex(field.NestedIdx).Interface()
+		}
 		return v.Field(field.Index).Interface()
+	}
+
+	// Try searching by name if column name doesn't match
+	for _, field := range m.Fields {
+		if field.Column == columnName {
+			if len(field.NestedIdx) > 0 {
+				return v.FieldByIndex(field.NestedIdx).Interface()
+			}
+			return v.Field(field.Index).Interface()
+		}
 	}
 
 	return nil
 }
 
 func getRelationFieldIndex(typ reflect.Type, fieldName string) int {
+	for typ.Kind() == reflect.Ptr {
+		typ = typ.Elem()
+	}
+	if typ.Kind() != reflect.Struct {
+		return -1
+	}
 	for i := 0; i < typ.NumField(); i++ {
 		field := typ.Field(i)
 		if field.Name == fieldName {

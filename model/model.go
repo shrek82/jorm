@@ -62,20 +62,43 @@ func parseModel(typ reflect.Type) (*Model, error) {
 		OriginalType: typ,
 	}
 
+	if err := m.parseFields(typ, nil); err != nil {
+		return nil, err
+	}
+
+	return m, nil
+}
+
+func (m *Model) parseFields(typ reflect.Type, baseIndex []int) error {
 	for i := 0; i < typ.NumField(); i++ {
 		structField := typ.Field(i)
 		if !structField.IsExported() {
 			continue
 		}
 
-		tagStr := structField.Tag.Get("jorm")
+		// Handle embedded structs
+		if structField.Anonymous {
+			fieldTyp := structField.Type
+			for fieldTyp.Kind() == reflect.Ptr {
+				fieldTyp = fieldTyp.Elem()
+			}
+			if fieldTyp.Kind() == reflect.Struct {
+				newBaseIndex := make([]int, len(baseIndex), len(baseIndex)+1)
+				copy(newBaseIndex, baseIndex)
+				newBaseIndex = append(newBaseIndex, i)
+				if err := m.parseFields(fieldTyp, newBaseIndex); err != nil {
+					return err
+				}
+				continue
+			}
+		}
 
+		tagStr := structField.Tag.Get("jorm")
 		if tagStr == "-" {
 			continue
 		}
 
 		tag := ParseTag(tagStr)
-
 		if tag.JoinTable != "" || tag.RelationType != "" {
 			continue
 		}
@@ -100,11 +123,17 @@ func parseModel(typ reflect.Type) (*Model, error) {
 			columnName = camelToSnake(structField.Name)
 		}
 
+		// Calculate nested index
+		index := make([]int, len(baseIndex), len(baseIndex)+1)
+		copy(index, baseIndex)
+		index = append(index, i)
+
 		field := &Field{
 			Name:       structField.Name,
 			Column:     columnName,
 			Type:       structField.Type,
 			Index:      i,
+			NestedIdx:  index,
 			IsPK:       tag.PrimaryKey,
 			IsAuto:     tag.AutoInc,
 			AutoTime:   tag.AutoTime,
@@ -119,8 +148,7 @@ func parseModel(typ reflect.Type) (*Model, error) {
 			m.PKField = field
 		}
 	}
-
-	return m, nil
+	return nil
 }
 
 func isRelationField(typ reflect.Type) bool {

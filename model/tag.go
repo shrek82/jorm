@@ -100,6 +100,9 @@ func ParseTag(tagStr string) *Tag {
 			tag.JoinFK = strings.TrimSpace(subParts[0])
 		case "join_ref":
 			tag.JoinRef = strings.TrimSpace(subParts[0])
+		case "many_many":
+			tag.RelationType = "many_to_many"
+			tag.JoinTable = strings.TrimSpace(subParts[0])
 		}
 	}
 	return tag

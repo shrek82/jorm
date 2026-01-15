@@ -55,8 +55,18 @@ func getScanPlan(m *model.Model, columns []string) *scanPlan {
 
 	fields := make([]*model.Field, len(columns))
 	for i, col := range columns {
+		// Try exact match first
 		if field, ok := m.FieldMap[col]; ok {
 			fields[i] = field
+		} else {
+			// Try matching with table prefix (e.g., "preload_user.name")
+			parts := strings.Split(col, ".")
+			if len(parts) > 1 {
+				lastPart := parts[len(parts)-1]
+				if field, ok := m.FieldMap[lastPart]; ok {
+					fields[i] = field
+				}
+			}
 		}
 	}
 
@@ -327,6 +337,7 @@ func (q *Query) scanRow(rows *sql.Rows, dest any) error {
 	values := make([]any, len(columns))
 	for i, field := range plan.fields {
 		if field != nil {
+			// Ensure we are using the correct type for the scanner
 			values[i] = reflect.New(field.Type).Interface()
 		} else {
 			var ignore any
@@ -338,14 +349,58 @@ func (q *Query) scanRow(rows *sql.Rows, dest any) error {
 		return err
 	}
 
-	destValue := reflect.ValueOf(dest).Elem()
+	destValue := reflect.ValueOf(dest)
+	if destValue.Kind() == reflect.Ptr {
+		destValue = destValue.Elem()
+	}
+
 	for i, field := range plan.fields {
 		if field != nil {
-			destValue.Field(field.Index).Set(reflect.ValueOf(values[i]).Elem())
+			val := reflect.ValueOf(values[i]).Elem()
+			setFieldValue(destValue, field, val)
 		}
 	}
 
 	return nil
+}
+
+func setFieldValue(dest reflect.Value, field *model.Field, value reflect.Value) {
+	// Debug print
+	// fmt.Printf("Setting field %s (type %v) with value %v (type %v)\n", field.Name, field.Type, value.Interface(), value.Type())
+
+	if len(field.NestedIdx) > 0 {
+		f := dest
+		for _, i := range field.NestedIdx {
+			if f.Kind() == reflect.Ptr {
+				if f.IsNil() {
+					if !f.CanSet() {
+						return
+					}
+					f.Set(reflect.New(f.Type().Elem()))
+				}
+				f = f.Elem()
+			}
+			f = f.Field(i)
+		}
+		if f.CanSet() {
+			// Handle type mismatch for basic types (e.g., int64 vs int)
+			if f.Type() != value.Type() && value.Type().ConvertibleTo(f.Type()) {
+				f.Set(value.Convert(f.Type()))
+			} else if f.Type() == value.Type() {
+				f.Set(value)
+			}
+		}
+	} else {
+		f := dest.Field(field.Index)
+		if f.CanSet() {
+			// Handle type mismatch for basic types
+			if f.Type() != value.Type() && value.Type().ConvertibleTo(f.Type()) {
+				f.Set(value.Convert(f.Type()))
+			} else if f.Type() == value.Type() {
+				f.Set(value)
+			}
+		}
+	}
 }
 
 // Insert inserts a new record into the database.
