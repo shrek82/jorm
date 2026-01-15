@@ -36,16 +36,22 @@ import (
 // {{.StructName}} 代表数据库表 {{.RawTableName}} 的模型
 type {{.StructName}} struct {
 {{- range .Fields}}
-	{{.Name}} {{.Type}} ` + "`" + `jorm:"{{.Tag}}"` + "`" + `
+	{{.Name}} {{.Type}} ` + "`" + `jorm:"{{.Tag}}"` + "`" + ` {{if .Comment}}// {{.Comment}}{{end}}
 {{- end}}
+}
+
+// TableName 返回真实的数据库表名
+func (m *{{.StructName}}) TableName() string {
+	return "{{.RawTableName}}"
 }
 `
 
 // Field 代表模型中的一个字段
 type Field struct {
-	Name string // Go 结构体字段名
-	Type string // Go 类型
-	Tag  string // jorm 标签
+	Name    string // Go 结构体字段名
+	Type    string // Go 类型
+	Tag     string // jorm 标签
+	Comment string // 数据库字段注释
 }
 
 // ModelData 代表生成模板所需的数据
@@ -206,7 +212,7 @@ func fetchTableInfo(db *sql.DB, driver, table string) ([]Field, error) {
 			})
 		}
 	case "mysql":
-		rows, err := db.Query(fmt.Sprintf("DESCRIBE %s", table))
+		rows, err := db.Query(fmt.Sprintf("SHOW FULL COLUMNS FROM %s", table))
 		if err != nil {
 			return nil, err
 		}
@@ -216,20 +222,24 @@ func fetchTableInfo(db *sql.DB, driver, table string) ([]Field, error) {
 			var (
 				field      string
 				typ        string
+				collation  sql.NullString
 				null       string
 				key        string
 				defaultVal sql.NullString
 				extra      string
+				privileges string
+				comment    string
 			)
-			if err := rows.Scan(&field, &typ, &null, &key, &defaultVal, &extra); err != nil {
+			if err := rows.Scan(&field, &typ, &collation, &null, &key, &defaultVal, &extra, &privileges, &comment); err != nil {
 				return nil, err
 			}
 			isPK := key == "PRI"
 			isNotNull := null == "NO"
 			fields = append(fields, Field{
-				Name: snakeToCamel(field, true),
-				Type: mapType(typ),
-				Tag:  generateTag(field, typ, isPK, isNotNull),
+				Name:    snakeToCamel(field, true),
+				Type:    mapType(typ),
+				Tag:     generateTag(field, typ, isPK, isNotNull),
+				Comment: comment,
 			})
 		}
 	case "postgres":
@@ -238,7 +248,8 @@ func fetchTableInfo(db *sql.DB, driver, table string) ([]Field, error) {
 				c.column_name, 
 				c.data_type, 
 				c.is_nullable,
-				CASE WHEN tc.constraint_type = 'PRIMARY KEY' THEN 'YES' ELSE 'NO' END as is_pk
+				CASE WHEN tc.constraint_type = 'PRIMARY KEY' THEN 'YES' ELSE 'NO' END as is_pk,
+				d.description as comment
 			FROM information_schema.columns c
 			LEFT JOIN information_schema.key_column_usage kcu 
 				ON c.table_name = kcu.table_name 
@@ -247,6 +258,8 @@ func fetchTableInfo(db *sql.DB, driver, table string) ([]Field, error) {
 			LEFT JOIN information_schema.table_constraints tc 
 				ON kcu.constraint_name = tc.constraint_name 
 				AND kcu.table_schema = tc.table_schema
+			LEFT JOIN pg_catalog.pg_stat_user_tables t ON c.table_name = t.relname
+			LEFT JOIN pg_catalog.pg_description d ON t.relid = d.objoid AND c.ordinal_position = d.objsubid
 			WHERE c.table_name = $1 AND c.table_schema = 'public'
 			ORDER BY c.ordinal_position`, table)
 		if err != nil {
@@ -256,13 +269,15 @@ func fetchTableInfo(db *sql.DB, driver, table string) ([]Field, error) {
 
 		for rows.Next() {
 			var name, dataType, isNullable, isPK string
-			if err := rows.Scan(&name, &dataType, &isNullable, &isPK); err != nil {
+			var comment sql.NullString
+			if err := rows.Scan(&name, &dataType, &isNullable, &isPK, &comment); err != nil {
 				return nil, err
 			}
 			fields = append(fields, Field{
-				Name: snakeToCamel(name, true),
-				Type: mapType(dataType),
-				Tag:  generateTag(name, dataType, isPK == "YES", isNullable == "NO"),
+				Name:    snakeToCamel(name, true),
+				Type:    mapType(dataType),
+				Tag:     generateTag(name, dataType, isPK == "YES", isNullable == "NO"),
+				Comment: comment.String,
 			})
 		}
 	}

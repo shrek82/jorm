@@ -55,8 +55,20 @@ func GetModel(value any) (*Model, error) {
 }
 
 func parseModel(typ reflect.Type) (*Model, error) {
+	tableName := camelToSnake(typ.Name())
+
+	// Check if the type implements TableName() string
+	// We need a value to check for method implementation
+	val := reflect.New(typ).Interface()
+	if tn, ok := val.(interface{ TableName() string }); ok {
+		tableName = tn.TableName()
+	} else if tn, ok := reflect.New(typ).Elem().Interface().(interface{ TableName() string }); ok {
+		// Also check value receiver
+		tableName = tn.TableName()
+	}
+
 	m := &Model{
-		TableName:    camelToSnake(typ.Name()),
+		TableName:    tableName,
 		FieldMap:     make(map[string]*Field),
 		Relations:    make(map[string]*Relation),
 		OriginalType: typ,
