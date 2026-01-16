@@ -94,7 +94,6 @@ func TestValidator(t *testing.T) {
 		if err == nil {
 			t.Error("Expected validation error, got nil")
 		}
-
 		errs, ok := err.(jorm.ValidationErrors)
 		if !ok {
 			t.Errorf("Expected ValidationErrors, got %T", err)
