@@ -20,6 +20,7 @@ type Rule = validator.Rule
 
 var (
 	Validate = validator.Validate
+	Check    = validator.Check
 
 	// Rules
 	Required     = validator.Required

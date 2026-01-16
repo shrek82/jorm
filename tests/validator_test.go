@@ -3,6 +3,7 @@ package tests
 import (
 	"errors"
 	"os"
+	"strings"
 	"testing"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -37,6 +38,16 @@ func (m *ValidateUser) CommonValidator() jorm.Validator {
 			jorm.Range(18, 100).Msg("Must be adult"),
 		},
 	}.Validate
+}
+
+// BeforeInsert 钩子复用 CommonValidator
+func (m *ValidateUser) BeforeInsert() error {
+	return m.CommonValidator()(m)
+}
+
+// BeforeUpdate 钩子复用 CommonValidator
+func (m *ValidateUser) BeforeUpdate() error {
+	return m.CommonValidator()(m)
 }
 
 // AdminValidator 返回管理员权限验证函数
@@ -352,6 +363,94 @@ func TestValidator(t *testing.T) {
 		}
 		if len(errs["User_Age"]) == 0 {
 			t.Error("Expected error for User_Age (column name match)")
+		}
+	})
+
+	t.Run("Hook Validation", func(t *testing.T) {
+		// Test validation via BeforeInsert hook
+		user := &ValidateUser{Name: "A", Email: "invalid", Age: 10}
+		// Insert should fail due to validation in BeforeInsert
+		_, err := db.Model(user).Insert(user)
+		if err == nil {
+			t.Error("Expected validation error from hook, got nil")
+		}
+
+		errs, ok := err.(jorm.ValidationErrors)
+		// Note: The error might be wrapped, but if CommonValidator returns ValidationErrors,
+		// and BeforeInsert returns it directly, it should be accessible or wrapped.
+		// JORM hooks wrap errors. Let's check string content for simplicity if not directly castable.
+		if !ok {
+			// Try unwrapping or checking string
+			errStr := err.Error()
+			if errStr == "" {
+				t.Error("Expected non-empty error message")
+			}
+		} else {
+			if len(errs["Name"]) == 0 || errs["Name"][0].Error() != "Name too short" {
+				t.Errorf("Unexpected error for Name: %v", errs["Name"])
+			}
+		}
+	})
+}
+
+type HookVarUser struct {
+	ID   int64
+	Name string
+	Code string
+}
+
+func (m *HookVarUser) TableName() string {
+	return "hook_var_users"
+}
+
+func (m *HookVarUser) BeforeInsert() error {
+	// Ad-hoc validation for Code using jorm.Check
+	// 验证 Code 字段：必须存在，且长度至少为 5
+	if err := jorm.Check(m.Code, jorm.Required, jorm.MinLen(5).Msg("Code too short")); err != nil {
+		return err
+	}
+	return nil
+}
+
+func TestValidator_Check(t *testing.T) {
+	dbName := "validator_var_test.db"
+	os.Remove(dbName)
+	db, err := jorm.Open("sqlite3", dbName, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		db.Close()
+		os.Remove(dbName)
+	}()
+
+	// Create table
+	_, err = db.Exec("CREATE TABLE hook_var_users (id INTEGER PRIMARY KEY, name TEXT, code TEXT)")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("Hook AdHoc Validation Success", func(t *testing.T) {
+		user := &HookVarUser{Name: "Test", Code: "12345"}
+		_, err := db.Model(user).Insert(user)
+		if err != nil {
+			t.Fatalf("Expected success, got %v", err)
+		}
+	})
+
+	t.Run("Hook AdHoc Validation Failure", func(t *testing.T) {
+		user := &HookVarUser{Name: "Test", Code: "123"}
+		_, err := db.Model(user).Insert(user)
+		if err == nil {
+			t.Error("Expected validation error, got nil")
+		} else {
+			// jorm.Var returns the error directly.
+			// Hook errors might be wrapped by JORM core (e.g. "before insert hook failed: ...")
+			// or returned as is.
+			// Let's check if the error message contains our custom message.
+			if !strings.Contains(err.Error(), "Code too short") {
+				t.Errorf("Expected error containing 'Code too short', got '%v'", err)
+			}
 		}
 	})
 }

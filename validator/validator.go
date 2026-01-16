@@ -184,3 +184,14 @@ func Validate(value any, validators ...Validator) error {
 	}
 	return nil
 }
+
+// Check validates a single variable against a set of rules.
+// This is useful for ad-hoc validation of single values, e.g. in hooks.
+func Check(value any, rules ...Rule) error {
+	for _, rule := range rules {
+		if err := rule.Validate(value); err != nil {
+			return err
+		}
+	}
+	return nil
+}
