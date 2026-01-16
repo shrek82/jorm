@@ -23,10 +23,10 @@ const (
 type LogLevel int
 
 const (
-	LogLevelSilent LogLevel = iota
-	LogLevelError
-	LogLevelWarn
-	LogLevelInfo
+	Silent LogLevel = iota
+	Error
+	Warn
+	Info
 )
 
 // LogFormat defines the output format of the log
@@ -102,11 +102,11 @@ type stdLogger struct {
 }
 
 // NewStdLogger creates a new standard logger.
-// By default, it is set to LogLevelError to only show critical issues.
+// By default, it is set to Error to only show critical issues.
 func NewStdLogger() Logger {
 	return &stdLogger{
 		baseLogger: baseLogger{
-			level:        LogLevelError,
+			level:        Error,
 			format:       LogFormatText,
 			writer:       os.Stdout,
 			levelWriters: make(map[LogLevel]io.Writer),
@@ -126,25 +126,25 @@ func (l *stdLogger) WithFields(fields map[string]any) Logger {
 }
 
 func (l *stdLogger) Info(format string, args ...any) {
-	if l.level >= LogLevelInfo {
+	if l.level >= Info {
 		l.emit("INFO", format, args)
 	}
 }
 
 func (l *stdLogger) Warn(format string, args ...any) {
-	if l.level >= LogLevelWarn {
+	if l.level >= Warn {
 		l.emit("WARN", format, args)
 	}
 }
 
 func (l *stdLogger) Error(format string, args ...any) {
-	if l.level >= LogLevelError {
+	if l.level >= Error {
 		l.emit("ERROR", format, args)
 	}
 }
 
 func (l *stdLogger) SQL(sql string, duration time.Duration, args ...any) {
-	if l.level >= LogLevelInfo {
+	if l.level >= Info {
 		if l.format == LogFormatJSON {
 			l.emit("SQL", "", []any{"sql", sql, "duration", duration.String(), "args", args})
 		} else {
@@ -230,13 +230,13 @@ func (l *stdLogger) emit(level string, fmtStr string, args []any) {
 func (l *stdLogger) parseLevel(level string) LogLevel {
 	switch strings.ToUpper(level) {
 	case "ERROR":
-		return LogLevelError
+		return Error
 	case "WARN":
-		return LogLevelWarn
+		return Warn
 	case "INFO", "SQL":
-		return LogLevelInfo
+		return Info
 	default:
-		return LogLevelInfo
+		return Info
 	}
 }
 

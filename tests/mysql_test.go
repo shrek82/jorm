@@ -38,7 +38,7 @@ func setupMySQLTestDB(t *testing.T) (*core.DB, func()) {
 	}
 
 	myLog := logger.NewStdLogger()
-	myLog.SetLevel(logger.LogLevelInfo)
+	myLog.SetLevel(logger.Info)
 	myLog.SetFormat(logger.LogFormatText)
 	db.SetLogger(myLog)
 

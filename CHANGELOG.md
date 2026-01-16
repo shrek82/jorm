@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 优化 (Changed)
 - 优化 `jorm-gen` 标签生成逻辑：对于 `decimal`、`tinyint` 等已有明确 `type` 标签的字段，不再重复生成 `size` 标签，保持代码整洁。
+- `logger` 常量简化：新增 `Silent`, `Error`, `Warn`, `Info` 别名，方便外部配置（原 `LogLevelError` 等仍兼容但标记废弃）。
 
 ## [v1.0.0-alpha.7] - 2026-01-16
 
