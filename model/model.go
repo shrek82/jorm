@@ -56,8 +56,7 @@ func GetModel(value any) (*Model, error) {
 		return nil, fmt.Errorf("failed to get model for %s: value must be a struct or pointer to struct", typ.Kind())
 	}
 
-	key := typ.PkgPath() + "." + typ.Name()
-	if cached, ok := modelCache.Load(key); ok {
+	if cached, ok := modelCache.Load(typ); ok {
 		return cached.(*Model), nil
 	}
 
@@ -67,7 +66,7 @@ func GetModel(value any) (*Model, error) {
 	}
 
 	InvalidateRelationCache()
-	modelCache.Store(key, m)
+	modelCache.Store(typ, m)
 	return m, nil
 }
 
