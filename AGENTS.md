@@ -69,8 +69,9 @@ import (
 - Use `errors.Is()` and `errors.As()` for checking
 
 ### Concurrency
-- Use `sync.Map` for simple concurrent map access (as per architecture)
-- Use `sync.RWMutex` for complex synchronization
+- Use `sync.Map` for simple concurrent map access (modelCache, converterCache)
+- Use `sync.RWMutex` for complex synchronization (DB health tracking)
+- Use `sync.Pool` for buffer reuse (scanBufferPool)
 - Lock for minimal scope only
 
 ### Function Design
@@ -80,7 +81,8 @@ import (
 - Chain methods return `*Type` for fluent API
 
 ### Reflection
-- Minimize and cache reflection results (model metadata)
+- Minimize and cache reflection results (model metadata in sync.Map)
+- Use converterCache sync.Map for type conversion caching
 - Document reflection-heavy code
 
 ### Testing
@@ -105,7 +107,7 @@ Implement hook interfaces for lifecycle events:
 - **Builder**: SQL construction, dialect handling
 - **Model**: Metadata, field mapping, tag parsing
 - **Dialect**: Database-specific SQL generation, type mapping
-- **Pool**: Connection pooling abstraction
+- **Pool**: Connection pooling abstraction (pool.Pool interface)
 - **Logger**: Logging interface
 
 Keep concerns separate. Each component has a single responsibility.
@@ -125,12 +127,13 @@ Keep concerns separate. Each component has a single responsibility.
 
 ### Package Structure
 - **core/**: Main DB, Query, Transaction interfaces
-- **model/**: Model metadata, field mapping, tag parsing  
+- **model/**: Model metadata, field mapping, tag parsing
 - **dialect/**: Database-specific SQL generation
 - **logger/**: Logging abstraction
 - **pool/**: Connection pooling
 - **validator/**: Data validation rules
 - **tests/**: Integration and unit tests
+- **cmd/**: Code generation tools
 
 ### Error Variables
 Use predefined error variables from `core/errors.go`:
