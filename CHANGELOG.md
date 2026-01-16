@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] - 2026-01-16
+## [v1.0.0-alpha.7] - 2026-01-16
 
 ### 新增 (Added)
 - 为 `ValidationErrors` 增加 `First()` 方法，返回第一个验证错误对象。
@@ -24,7 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### 变更 (Changed)
 - 重构 `ValidationErrors.Error()` 方法，提升可读性。
 
-## [Unreleased] - 2026-01-16 16:30
+## [v1.0.0-alpha.6] - 2026-01-16 16:30
 
 ### 新增 (Added)
 - 新增 `TimeScanner` 结构体 (core/query.go)，用于自动处理 MySQL 的日期时间扫描。
