@@ -444,13 +444,68 @@ func TestValidator_Check(t *testing.T) {
 		if err == nil {
 			t.Error("Expected validation error, got nil")
 		} else {
-			// jorm.Var returns the error directly.
+			// jorm.Check returns the error directly.
 			// Hook errors might be wrapped by JORM core (e.g. "before insert hook failed: ...")
 			// or returned as is.
 			// Let's check if the error message contains our custom message.
 			if !strings.Contains(err.Error(), "Code too short") {
 				t.Errorf("Expected error containing 'Code too short', got '%v'", err)
 			}
+		}
+	})
+
+	t.Run("Hook Manual Error Handling", func(t *testing.T) {
+		// Test manual error overriding as requested by user
+		// if err := jorm.Check(..., ...); err != nil { return errors.New("custom") }
+		// This logic is actually tested in TestValidator_Check_ManualError below with a dedicated struct.
+		// So we can keep this empty or remove it.
+	})
+}
+
+type HookManualErrorUser struct {
+	ID   int64
+	Name string
+}
+
+func (m *HookManualErrorUser) TableName() string {
+	return "hook_manual_error_users"
+}
+
+func (m *HookManualErrorUser) BeforeInsert() error {
+	// 演示用户请求的模式：手动处理错误
+	if err := jorm.Check(m.Name, jorm.Required, jorm.MinLen(5)); err != nil {
+		return errors.New("自定义错误提示")
+	}
+	return nil
+}
+
+func TestValidator_Check_ManualError(t *testing.T) {
+	dbName := "validator_manual_test.db"
+	os.Remove(dbName)
+	db, err := jorm.Open("sqlite3", dbName, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		db.Close()
+		os.Remove(dbName)
+	}()
+
+	_, err = db.Exec("CREATE TABLE hook_manual_error_users (id INTEGER PRIMARY KEY, name TEXT)")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("Manual Error Override", func(t *testing.T) {
+		user := &HookManualErrorUser{Name: "Tiny"} // Length < 5
+		_, err := db.Model(user).Insert(user)
+		if err == nil {
+			t.Error("Expected validation error, got nil")
+		}
+
+		// Check if we got the custom error message
+		if !strings.Contains(err.Error(), "自定义错误提示") {
+			t.Errorf("Expected '自定义错误提示', got '%v'", err)
 		}
 	})
 }
