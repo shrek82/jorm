@@ -220,13 +220,13 @@ func (q *Query) WithContext(ctx context.Context) *Query {
 
 // Cache enables caching for this query.
 // If ttl is provided, it sets the cache expiration.
-// If no ttl is provided, it uses the default expiration (usually permanent).
+// If no ttl is provided, it uses the default expiration (usually 24h if not configured).
 func (q *Query) Cache(ttl ...time.Duration) *Query {
 	var t time.Duration
 	if len(ttl) > 0 {
 		t = ttl[0]
 	} else {
-		t = -1 // Sentinel for "default/permanent"
+		t = -2 // Sentinel for "default" (no args)
 	}
 	q.ctx = context.WithValue(q.ctx, "jorm_cache_ttl", t)
 	return q

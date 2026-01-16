@@ -14,13 +14,18 @@ import (
 // RedisCacheMiddleware caches query results in Redis.
 // To use it, add a duration to the context with key "jorm_cache_ttl".
 type RedisCacheMiddleware struct {
-	Client *redis.Client
+	Client     *redis.Client
+	DefaultTTL time.Duration
 }
 
-func NewRedisCache(opt *redis.Options) *RedisCacheMiddleware {
-	return &RedisCacheMiddleware{
+func NewRedisCache(opt *redis.Options, defaultTTL ...time.Duration) *RedisCacheMiddleware {
+	m := &RedisCacheMiddleware{
 		Client: redis.NewClient(opt),
 	}
+	if len(defaultTTL) > 0 {
+		m.DefaultTTL = defaultTTL[0]
+	}
+	return m
 }
 
 func (m *RedisCacheMiddleware) Name() string {
@@ -49,10 +54,16 @@ func (m *RedisCacheMiddleware) Process(ctx context.Context, query *core.Query, n
 		if t == 0 {
 			// Cache(0) -> disable cache
 			return next(ctx, query)
-		}
-		if t < 0 {
-			// Cache() -> permanent (Redis uses 0 for no expiration)
-			ttl = 0
+		} else if t == -1 {
+			// Cache(-1) -> Permanent
+			ttl = 0 // Redis 0 means permanent
+		} else if t == -2 {
+			// Cache() -> use default if set, else 24h
+			if m.DefaultTTL > 0 {
+				ttl = m.DefaultTTL
+			} else {
+				ttl = 24 * time.Hour
+			}
 		} else {
 			ttl = t
 		}

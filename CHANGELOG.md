@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - 2026-01-17 12:15
+
+### 新增 (Added)
+- 新增文档 `docs/20-其他中间件与开发指南.md`，详细介绍 `SlowLog`, `CircuitBreaker`, `Tracing` 等中间件，并提供自定义中间件开发教程。
+- 新增文档 `docs/19-中间件实践.md` 中关于数据缓存的详细指南，涵盖内存、文件、Redis 多级缓存配置与使用。
+
+### 变更 (Changed)
+- 更新文档索引 `docs/00-目录.md`，增加中间件相关的新章节链接。
+
 ## [Unreleased] - 2026-01-17 12:00
 
 ### 修复 (Fixed)

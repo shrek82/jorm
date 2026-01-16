@@ -85,12 +85,19 @@ func (m *MemoryCacheMiddleware) Process(ctx context.Context, query *core.Query, 
 	shouldCache := false
 	if ttlVal != nil {
 		if t, ok := ttlVal.(time.Duration); ok {
-			if t < 0 {
-				// Cache() called without args -> use default/permanent
+			if t == 0 {
+				// Cache(0) -> disable cache
+				return next(ctx, query)
+			} else if t == -1 {
+				// Cache(-1) -> Permanent
+				ttl = 24 * 365 * 100 * time.Hour // "Permanent"
+				shouldCache = true
+			} else if t == -2 {
+				// Cache() -> use default if set, else 24h
 				if m.DefaultTTL > 0 {
 					ttl = m.DefaultTTL
 				} else {
-					ttl = 24 * 365 * 100 * time.Hour // "Permanent"
+					ttl = 24 * time.Hour // Default fallback
 				}
 				shouldCache = true
 			} else if t > 0 {
