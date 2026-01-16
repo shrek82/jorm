@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - 2026-01-16
+
+### 新增 (Added)
+- 为 `ValidationErrors` 增加 `First()` 方法，返回第一个验证错误对象。
+- 为 `ValidationErrors` 增加 `FirstMsg()` 方法，直接返回第一个错误的字符串消息。
+- 新增全局快捷函数 `jorm.FirstMsg(err)`，自动处理错误类型转换，无需手动断言。
+- 优化 `ValidationErrors.Error()` 实现，多错误时返回摘要格式（如：`Field: error (and N more errors)`）。
+- 优化 `go.mod` 中的 `retract` 指令，合并为版本范围并添加说明注释。
+- 新增 LICENSE 文件（MIT），满足 pkg.go.dev 文档索引要求。
+- 设置默认日志级别为 `LogLevelError`，减少无关输出。
+- 新增灵活字段名匹配：支持大小写不敏感、列名（column tag）和蛇形命名。
+
+### 修复 (Fixed)
+- 修复 `validator.go` 中的 `go vet` 错误（非常量格式字符串问题）。
+- 修复 `logger.go` 中日志方法命名冲突，将 `log` 重命名为 `emit`。
+
+### 变更 (Changed)
+- 重构 `ValidationErrors.Error()` 方法，提升可读性。
+
 ## [Unreleased] - 2026-01-16 16:30
 
 ### 新增 (Added)
