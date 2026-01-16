@@ -66,6 +66,7 @@ type sqlBuilder struct {
 	limit      int             // LIMIT value
 	offsetSet  bool            // Whether offset is set
 	offset     int             // OFFSET value
+	sb         strings.Builder // Reusable string builder
 }
 
 var builderPool = sync.Pool{
@@ -99,6 +100,7 @@ func (b *sqlBuilder) Reset(d dialect.Dialect) {
 	b.limit = 0
 	b.offsetSet = false
 	b.offset = 0
+	b.sb.Reset()
 }
 
 // SetTable sets the table name for the current SQL statement.
@@ -251,74 +253,103 @@ func (b *sqlBuilder) Offset(n int) Builder {
 }
 
 func (b *sqlBuilder) replacePlaceholders(sql string) string {
-	if strings.Contains(sql, "?") {
-		index := 1
-		for {
-			newSQL := strings.Replace(sql, "?", b.dialect.Placeholder(index), 1)
-			if newSQL == sql {
-				break
-			}
-			sql = newSQL
-			index++
-		}
+	if !strings.Contains(sql, "?") {
+		return sql
 	}
-	return sql
+
+	// Reuse b.sb for building the final string with correct placeholders.
+	// Since sql is the result of b.sb.String() from Build* methods, it is safe to reset b.sb.
+	b.sb.Reset()
+
+	index := 1
+	for {
+		idx := strings.Index(sql, "?")
+		if idx == -1 {
+			b.sb.WriteString(sql)
+			break
+		}
+
+		b.sb.WriteString(sql[:idx])
+		b.sb.WriteString(b.dialect.Placeholder(index))
+		sql = sql[idx+1:]
+		index++
+	}
+	return b.sb.String()
 }
 
 // BuildSelect generates the complete SELECT SQL statement and its arguments.
 func (b *sqlBuilder) BuildSelect() (string, []any) {
-	var sqls []string
-	var args []any
+	b.sb.Reset()
+
+	argCount := len(b.joinArgs) + len(b.whereArgs) + len(b.havingArgs)
+	if b.limitSet {
+		argCount++
+	}
+	if b.offsetSet {
+		argCount++
+	}
+	args := make([]any, 0, argCount)
 
 	// SELECT
+	b.sb.WriteString("SELECT ")
 	if len(b.selectCols) > 0 {
-		sqls = append(sqls, "SELECT "+strings.Join(b.selectCols, ", "))
+		for i, col := range b.selectCols {
+			if i > 0 {
+				b.sb.WriteString(", ")
+			}
+			b.sb.WriteString(col)
+		}
 	} else {
-		sqls = append(sqls, "SELECT *")
+		b.sb.WriteString("*")
 	}
 
 	// FROM
-	from := "FROM " + b.dialect.Quote(b.table)
+	b.sb.WriteString(" FROM ")
+	b.sb.WriteString(b.dialect.Quote(b.table))
 	if b.alias != "" {
-		from += " " + b.alias
+		b.sb.WriteString(" ")
+		b.sb.WriteString(b.alias)
 	}
-	sqls = append(sqls, from)
 
 	if len(b.joins) > 0 {
-		sqls = append(sqls, strings.Join(b.joins, " "))
+		b.sb.WriteString(" ")
+		b.sb.WriteString(strings.Join(b.joins, " "))
 		args = append(args, b.joinArgs...)
 	}
 
 	if b.whereExpr != "" {
-		sqls = append(sqls, "WHERE "+b.whereExpr)
+		b.sb.WriteString(" WHERE ")
+		b.sb.WriteString(b.whereExpr)
 		args = append(args, b.whereArgs...)
 	}
 
 	if len(b.groupBy) > 0 {
-		sqls = append(sqls, "GROUP BY "+strings.Join(b.groupBy, ", "))
+		b.sb.WriteString(" GROUP BY ")
+		b.sb.WriteString(strings.Join(b.groupBy, ", "))
 	}
 
 	if b.havingExpr != "" {
-		sqls = append(sqls, "HAVING "+b.havingExpr)
+		b.sb.WriteString(" HAVING ")
+		b.sb.WriteString(b.havingExpr)
 		args = append(args, b.havingArgs...)
 	}
 
 	if len(b.orderBy) > 0 {
-		sqls = append(sqls, "ORDER BY "+strings.Join(b.orderBy, ", "))
+		b.sb.WriteString(" ORDER BY ")
+		b.sb.WriteString(strings.Join(b.orderBy, ", "))
 	}
 
 	if b.limitSet {
-		sqls = append(sqls, "LIMIT ?")
+		b.sb.WriteString(" LIMIT ?")
 		args = append(args, b.limit)
 	}
 
 	if b.offsetSet {
-		sqls = append(sqls, "OFFSET ?")
+		b.sb.WriteString(" OFFSET ?")
 		args = append(args, b.offset)
 	}
 
-	sql := strings.Join(sqls, " ")
-	return b.replacePlaceholders(sql), args
+	return b.replacePlaceholders(b.sb.String()), args
 }
 
 // PutBuilder returns a sqlBuilder to the pool for reuse.
@@ -336,10 +367,13 @@ func (b *sqlBuilder) BuildInsert(columns []string) (string, []any) {
 
 // BuildUpdate generates the UPDATE SQL statement.
 func (b *sqlBuilder) BuildUpdate(data map[string]any) (string, []any) {
-	var sqls []string
-	var args []any
+	b.sb.Reset()
 
-	sqls = append(sqls, "UPDATE", b.dialect.Quote(b.table), "SET")
+	args := make([]any, 0, len(data)+len(b.whereArgs))
+
+	b.sb.WriteString("UPDATE ")
+	b.sb.WriteString(b.dialect.Quote(b.table))
+	b.sb.WriteString(" SET ")
 
 	// Sort columns to ensure deterministic SQL generation
 	columns := make([]string, 0, len(data))
@@ -348,34 +382,37 @@ func (b *sqlBuilder) BuildUpdate(data map[string]any) (string, []any) {
 	}
 	sort.Strings(columns)
 
-	var sets []string
-	for _, col := range columns {
-		sets = append(sets, b.dialect.Quote(col)+" = ?")
+	for i, col := range columns {
+		if i > 0 {
+			b.sb.WriteString(", ")
+		}
+		b.sb.WriteString(b.dialect.Quote(col))
+		b.sb.WriteString(" = ?")
 		args = append(args, data[col])
 	}
-	sqls = append(sqls, strings.Join(sets, ", "))
 
 	if b.whereExpr != "" {
-		sqls = append(sqls, "WHERE "+b.whereExpr)
+		b.sb.WriteString(" WHERE ")
+		b.sb.WriteString(b.whereExpr)
 		args = append(args, b.whereArgs...)
 	}
 
-	sql := strings.Join(sqls, " ")
-	return b.replacePlaceholders(sql), args
+	return b.replacePlaceholders(b.sb.String()), args
 }
 
 // BuildDelete generates the DELETE SQL statement.
 func (b *sqlBuilder) BuildDelete() (string, []any) {
-	var sqls []string
-	var args []any
+	b.sb.Reset()
+	args := make([]any, 0, len(b.whereArgs))
 
-	sqls = append(sqls, "DELETE FROM", b.dialect.Quote(b.table))
+	b.sb.WriteString("DELETE FROM ")
+	b.sb.WriteString(b.dialect.Quote(b.table))
 
 	if b.whereExpr != "" {
-		sqls = append(sqls, "WHERE "+b.whereExpr)
+		b.sb.WriteString(" WHERE ")
+		b.sb.WriteString(b.whereExpr)
 		args = append(args, b.whereArgs...)
 	}
 
-	sql := strings.Join(sqls, " ")
-	return b.replacePlaceholders(sql), args
+	return b.replacePlaceholders(b.sb.String()), args
 }
