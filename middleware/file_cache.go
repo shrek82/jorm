@@ -6,9 +6,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
+	"reflect"
 	"time"
 
 	"github.com/shrek82/jorm/core"
@@ -59,7 +59,7 @@ func (m *FileCacheMiddleware) Process(ctx context.Context, query *core.Query, ne
 	// Check if caching is enabled for this query
 	ttl := m.DefaultTTL
 	ttlVal := ctx.Value("jorm_cache_ttl")
-	
+
 	shouldCache := false
 	if ttlVal != nil {
 		if t, ok := ttlVal.(time.Duration); ok {
@@ -90,21 +90,30 @@ func (m *FileCacheMiddleware) Process(ctx context.Context, query *core.Query, ne
 	filename := filepath.Join(m.CacheDir, hex.EncodeToString(hash[:])+".json")
 
 	// Try to get from cache
-	if data, err := ioutil.ReadFile(filename); err == nil {
+	if data, err := os.ReadFile(filename); err == nil {
 		var entry fileCacheEntry
 		if err := json.Unmarshal(data, &entry); err == nil {
 			if time.Now().Before(entry.ExpiresAt) {
 				if query.Dest != nil {
-					if err := json.Unmarshal(entry.Data, query.Dest); err == nil {
-						return &core.Result{
-							Data:         query.Dest,
-							RowsAffected: 0,
-						}, nil
+					// Unmarshal into a temporary object to avoid corrupting Dest on failure
+					destType := reflect.TypeOf(query.Dest)
+					if destType.Kind() == reflect.Ptr {
+						temp := reflect.New(destType.Elem()).Interface()
+						if err := json.Unmarshal(entry.Data, temp); err != nil {
+							// Failed to unmarshal, ignore cache
+						} else {
+							// Success, copy to Dest
+							reflect.ValueOf(query.Dest).Elem().Set(reflect.ValueOf(temp).Elem())
+							return &core.Result{
+								Data:         query.Dest,
+								RowsAffected: 0,
+							}, nil
+						}
 					}
 				}
 			} else {
 				// Expired, remove file
-				_ = os.Remove(filename)
+				os.Remove(filename)
 			}
 		}
 	}
@@ -117,14 +126,15 @@ func (m *FileCacheMiddleware) Process(ctx context.Context, query *core.Query, ne
 
 	// Cache the result
 	if res.Data != nil {
-		dataBytes, err := json.Marshal(res.Data)
+		data, err := json.Marshal(res.Data)
 		if err == nil {
 			entry := fileCacheEntry{
-				Data:      dataBytes,
+				Data:      data,
 				ExpiresAt: time.Now().Add(ttl),
 			}
-			fileBytes, _ := json.Marshal(entry)
-			_ = ioutil.WriteFile(filename, fileBytes, 0644)
+			if entryData, err := json.Marshal(entry); err == nil {
+				os.WriteFile(filename, entryData, 0644)
+			}
 		}
 	}
 

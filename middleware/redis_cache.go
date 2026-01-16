@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -76,13 +77,20 @@ func (m *RedisCacheMiddleware) Process(ctx context.Context, query *core.Query, n
 	if err == nil {
 		// Cache hit
 		if query.Dest != nil {
-			if err := json.Unmarshal([]byte(val), query.Dest); err != nil {
-				// Failed to unmarshal, proceed to DB
-			} else {
-				return &core.Result{
-					Data:         query.Dest,
-					RowsAffected: 0, // Cached result usually doesn't have rows affected info preserved easily unless we cache it too
-				}, nil
+			// Unmarshal into a temporary object to avoid corrupting Dest on failure
+			destType := reflect.TypeOf(query.Dest)
+			if destType.Kind() == reflect.Ptr {
+				temp := reflect.New(destType.Elem()).Interface()
+				if err := json.Unmarshal([]byte(val), temp); err != nil {
+					// Failed to unmarshal, proceed to DB
+				} else {
+					// Success, copy to Dest
+					reflect.ValueOf(query.Dest).Elem().Set(reflect.ValueOf(temp).Elem())
+					return &core.Result{
+						Data:         query.Dest,
+						RowsAffected: 0,
+					}, nil
+				}
 			}
 		}
 	}
