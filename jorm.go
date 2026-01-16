@@ -21,6 +21,7 @@ type Rule = validator.Rule
 var (
 	Validate = validator.Validate
 	Check    = validator.Check
+	FirstMsg = validator.FirstMsg
 
 	// Rules
 	Required     = validator.Required

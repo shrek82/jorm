@@ -9,32 +9,24 @@ go build ./core
 go build -race ./...
 
 # Testing
-go test ./...                        # All tests
-go test -v ./...                    # Verbose output
-go test -cover ./...                 # With coverage
-go test -race ./...                  # Race condition detection
-go test -run TestSpecific            # Run specific test by name
-go test -v ./tests -run TestGetModel # Run specific test in package
-go test -v ./tests -run TestGetModel/BasicModel  # Run specific sub-test
-go test -v ./tests/...               # Run all tests in package
-go test -coverprofile=coverage.out ./... && go tool cover -html=coverage.out
+go test ./...                                    # All tests
+go test -v ./...                                 # Verbose
+go test -cover ./...                             # Coverage
+go test -race ./...                              # Race detection
 
-# Single Test Examples (most commonly used):
-go test -v ./tests -run TestGetModel$           # Run exact test
-go test -v ./tests -run TestGetModel/Basic$     # Run specific sub-test
-go test -v ./core -run TestDBOpen$              # Test in core package
-go test -run TestModel                          # Run test across all packages
+# Single Test (most common):
+go test -v ./tests -run TestGetModel$           # Exact test
+go test -v ./tests -run TestGetModel/Basic$     # Sub-test
+go test -v ./core -run TestDBOpen$              # In package
+go test -run TestModel                           # Across packages
 
 # Linting & Formatting
-go fmt ./...                        # Format code
-go vet ./...                        # Static analysis
-golangci-lint run                   # Comprehensive linting
-go fmt ./... && go vet ./... && golangci-lint run  # All checks
+go fmt ./...
+go vet ./...
+golangci-lint run
 
 # Dependencies
-go mod tidy                         # Clean dependencies
-go mod graph                        # Dependency graph
-go mod download                      # Download dependencies
+go mod tidy
 ```
 
 ## Code Style Guidelines
@@ -56,7 +48,8 @@ import (
 ### Formatting
 - Use `gofmt` (tabs, no trailing whitespace)
 - Keep lines under 120 characters
-- No inline comments
+- Use Godoc comments for exported types/functions
+- No inline comments (e.g., `x = 5 // set to 5`)
 
 ### Naming
 - Packages: lowercase single word (core, query, model)
@@ -92,8 +85,17 @@ import (
 
 ### Testing
 - Table-driven tests with `t.Run()` sub-tests
+- Use `t.Helper()` in test helper functions
 - Mock database connections where appropriate
 - Test success and failure paths
+- Benchmark functions use `setupBenchDB` pattern with cleanup
+
+### Hooks
+Implement hook interfaces for lifecycle events:
+- `BeforeInserter`, `AfterInserter` - before/after insert
+- `BeforeUpdater`, `AfterUpdater` - before/after update
+- `BeforeDeleter`, `AfterDeleter` - before/after delete
+- `AfterFinder` - after query retrieval
 
 ## Architecture Reminders
 

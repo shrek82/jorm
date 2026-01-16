@@ -13,16 +13,57 @@ type Validator func(value any) error
 type ValidationErrors map[string][]error
 
 func (v ValidationErrors) Error() string {
-	var sb strings.Builder
+	if len(v) == 0 {
+		return ""
+	}
+	var firstField string
+	var firstErr error
+	count := 0
+
 	for field, errs := range v {
-		for _, err := range errs {
-			if sb.Len() > 0 {
-				sb.WriteString("; ")
-			}
-			sb.WriteString(fmt.Sprintf("%s: %v", field, err))
+		if count == 0 && len(errs) > 0 {
+			firstField = field
+			firstErr = errs[0]
+		}
+		count += len(errs)
+	}
+
+	if count == 1 {
+		return fmt.Sprintf("%s: %v", firstField, firstErr)
+	}
+	return fmt.Sprintf("%s: %v (and %d more errors)", firstField, firstErr, count-1)
+}
+
+// First returns the first validation error found.
+// Since ValidationErrors is a map, the "first" error is non-deterministic.
+func (v ValidationErrors) First() error {
+	for _, errs := range v {
+		if len(errs) > 0 {
+			return errs[0]
 		}
 	}
-	return sb.String()
+	return nil
+}
+
+// FirstMsg returns the message of the first validation error found.
+func (v ValidationErrors) FirstMsg() string {
+	if err := v.First(); err != nil {
+		return err.Error()
+	}
+	return ""
+}
+
+// FirstMsg is a helper function that returns the first error message from an error.
+// If the error is a ValidationErrors, it returns the first field's error message.
+// Otherwise, it returns the error's own Error() message.
+func FirstMsg(err error) string {
+	if err == nil {
+		return ""
+	}
+	if ve, ok := err.(ValidationErrors); ok {
+		return ve.FirstMsg()
+	}
+	return err.Error()
 }
 
 // Rule is the interface for a single validation rule.

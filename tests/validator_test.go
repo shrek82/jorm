@@ -365,6 +365,68 @@ func TestValidator(t *testing.T) {
 		}
 	})
 
+	t.Run("ValidationErrors Helpers", func(t *testing.T) {
+		type HelperUser struct {
+			Name string
+			Age  int
+		}
+		rules := jorm.Rules{
+			"Name": {jorm.Required.Msg("Name is required")},
+			"Age":  {jorm.Range(18, 100).Msg("Too young")},
+		}
+
+		u := &HelperUser{Name: "", Age: 10}
+		err := jorm.Validate(u, rules.Validate)
+		if err == nil {
+			t.Fatal("Expected errors, got nil")
+		}
+
+		t.Error(jorm.FirstMsg(err))
+
+		errs, ok := err.(jorm.ValidationErrors)
+		if !ok {
+			t.Fatalf("Expected ValidationErrors, got %T", err)
+		}
+
+		// Test First()
+		firstErr := errs.First()
+		if firstErr == nil {
+			t.Error("First() should not be nil")
+		}
+
+		// Test FirstMsg()
+		msg := errs.FirstMsg()
+		if msg == "" {
+			t.Error("FirstMsg() should not be empty")
+		}
+		if msg != "Name is required" && msg != "Too young" {
+			t.Errorf("Unexpected FirstMsg: %s", msg)
+		}
+
+		// Test Error() summary format
+		errStr := errs.Error()
+		if !strings.Contains(errStr, "(and 1 more errors)") {
+			t.Errorf("Error() should contain summary info, got: %s", errStr)
+		}
+
+		// Test Global helper jorm.FirstMsg(err)
+		globalMsg := jorm.FirstMsg(err)
+		if globalMsg != msg {
+			t.Errorf("Global FirstMsg mismatch: expected %s, got %s", msg, globalMsg)
+		}
+
+		// Test Global helper with nil
+		if jorm.FirstMsg(nil) != "" {
+			t.Error("Global FirstMsg(nil) should be empty")
+		}
+
+		// Test Global helper with regular error
+		regErr := errors.New("standard error")
+		if jorm.FirstMsg(regErr) != "standard error" {
+			t.Error("Global FirstMsg should return Error() for regular errors")
+		}
+	})
+
 	t.Run("Hook Validation", func(t *testing.T) {
 		// Test validation via BeforeInsert hook
 		user := &ValidateUser{Name: "A", Email: "invalid", Age: 10}
