@@ -43,8 +43,19 @@ func (m *RedisCacheMiddleware) Process(ctx context.Context, query *core.Query, n
 		return next(ctx, query)
 	}
 
-	ttl, ok := ttlVal.(time.Duration)
-	if !ok || ttl <= 0 {
+	var ttl time.Duration
+	if t, ok := ttlVal.(time.Duration); ok {
+		if t == 0 {
+			// Cache(0) -> disable cache
+			return next(ctx, query)
+		}
+		if t < 0 {
+			// Cache() -> permanent (Redis uses 0 for no expiration)
+			ttl = 0
+		} else {
+			ttl = t
+		}
+	} else {
 		return next(ctx, query)
 	}
 

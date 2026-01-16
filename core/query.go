@@ -218,6 +218,20 @@ func (q *Query) WithContext(ctx context.Context) *Query {
 	return q
 }
 
+// Cache enables caching for this query.
+// If ttl is provided, it sets the cache expiration.
+// If no ttl is provided, it uses the default expiration (usually permanent).
+func (q *Query) Cache(ttl ...time.Duration) *Query {
+	var t time.Duration
+	if len(ttl) > 0 {
+		t = ttl[0]
+	} else {
+		t = -1 // Sentinel for "default/permanent"
+	}
+	q.ctx = context.WithValue(q.ctx, "jorm_cache_ttl", t)
+	return q
+}
+
 // WithFields adds structured fields to the query's logger.
 func (q *Query) WithFields(fields map[string]any) *Query {
 	if q.logger != nil {
@@ -393,11 +407,20 @@ func (q *Query) Count() (int64, error) {
 		return &Result{Data: count}, nil
 	}
 
+	// Set Dest to allow middleware to cache the result
+	var countResult int64
+	q.Dest = &countResult
+
 	res, err := q.executeWithMiddleware(final)
 	if err != nil {
 		return 0, err
 	}
 
+	// Handle pointer result (from cache middleware)
+	if cPtr, ok := res.Data.(*int64); ok {
+		return *cPtr, nil
+	}
+	// Handle value result (from database execution)
 	if count, ok := res.Data.(int64); ok {
 		return count, nil
 	}
@@ -436,11 +459,20 @@ func (q *Query) Sum(column string) (float64, error) {
 		return &Result{Data: sum.Float64}, nil
 	}
 
+	// Set Dest to allow middleware to cache the result
+	var sumResult float64
+	q.Dest = &sumResult
+
 	res, err := q.executeWithMiddleware(final)
 	if err != nil {
 		return 0, err
 	}
 
+	// Handle pointer result (from cache middleware)
+	if sPtr, ok := res.Data.(*float64); ok {
+		return *sPtr, nil
+	}
+	// Handle value result (from database execution)
 	if s, ok := res.Data.(float64); ok {
 		return s, nil
 	}

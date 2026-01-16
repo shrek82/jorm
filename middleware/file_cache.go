@@ -59,13 +59,27 @@ func (m *FileCacheMiddleware) Process(ctx context.Context, query *core.Query, ne
 	// Check if caching is enabled for this query
 	ttl := m.DefaultTTL
 	ttlVal := ctx.Value("jorm_cache_ttl")
+	
+	shouldCache := false
 	if ttlVal != nil {
 		if t, ok := ttlVal.(time.Duration); ok {
-			ttl = t
+			if t < 0 {
+				// Cache() called without args -> use default/permanent
+				// For file cache, we use DefaultTTL if set, or a very long duration
+				if m.DefaultTTL > 0 {
+					ttl = m.DefaultTTL
+				} else {
+					ttl = 24 * 365 * 100 * time.Hour // "Permanent"
+				}
+				shouldCache = true
+			} else if t > 0 {
+				ttl = t
+				shouldCache = true
+			}
 		}
 	}
 
-	if ttl <= 0 {
+	if !shouldCache {
 		return next(ctx, query)
 	}
 

@@ -62,8 +62,8 @@ func TestMiddleware(t *testing.T) {
 	}
 	var users []User
 
-	// First query (Miss)
-	err = db.Table("users").Find(&users)
+	// First query (Miss) - Use Cache() to enable caching
+	err = db.Table("users").Cache(1 * time.Minute).Find(&users)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,13 +79,23 @@ func TestMiddleware(t *testing.T) {
 
 	// Second query (Hit)
 	var users2 []User
-	err = db.Table("users").Find(&users2)
+	err = db.Table("users").Cache().Find(&users2) // Cache() means permanent/default
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	if len(users2) != 1 {
 		t.Errorf("Cache Hit expected 1 user, got %d (Bob should not be visible yet)", len(users2))
+	}
+
+	// Third query (No Cache) - Should see Bob
+	var users3 []User
+	err = db.Table("users").Find(&users3) // No Cache() call
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(users3) != 2 {
+		t.Errorf("Expected 2 users without cache, got %d", len(users3))
 	}
 
 	// 3. Circuit Breaker
