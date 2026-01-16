@@ -9,18 +9,35 @@ import (
 
 // Model represents table metadata
 type Model struct {
-	TableName    string
-	Fields       []*Field
-	FieldMap     map[string]*Field
-	PKField      *Field
-	Relations    map[string]*Relation
-	OriginalType reflect.Type
+	TableName       string
+	Fields          []*Field
+	FieldMap        map[string]*Field
+	PKField         *Field
+	Relations       map[string]*Relation
+	OriginalType    reflect.Type
+	HasBeforeInsert bool
+	HasAfterInsert  bool
+	HasBeforeUpdate bool
+	HasAfterUpdate  bool
+	HasBeforeDelete bool
+	HasAfterDelete  bool
+	HasAfterFind    bool
 }
 
 // GetRelation retrieves a relation by name
 func (m *Model) GetRelation(name string) (*Relation, error) {
 	return GetRelation(m, name)
 }
+
+var (
+	beforeInserterType = reflect.TypeOf((*BeforeInserter)(nil)).Elem()
+	afterInserterType  = reflect.TypeOf((*AfterInserter)(nil)).Elem()
+	beforeUpdaterType  = reflect.TypeOf((*BeforeUpdater)(nil)).Elem()
+	afterUpdaterType   = reflect.TypeOf((*AfterUpdater)(nil)).Elem()
+	beforeDeleterType  = reflect.TypeOf((*BeforeDeleter)(nil)).Elem()
+	afterDeleterType   = reflect.TypeOf((*AfterDeleter)(nil)).Elem()
+	afterFinderType    = reflect.TypeOf((*AfterFinder)(nil)).Elem()
+)
 
 var modelCache sync.Map
 
@@ -73,6 +90,15 @@ func parseModel(typ reflect.Type) (*Model, error) {
 		Relations:    make(map[string]*Relation),
 		OriginalType: typ,
 	}
+
+	ptrType := reflect.PtrTo(typ)
+	m.HasBeforeInsert = ptrType.Implements(beforeInserterType)
+	m.HasAfterInsert = ptrType.Implements(afterInserterType)
+	m.HasBeforeUpdate = ptrType.Implements(beforeUpdaterType)
+	m.HasAfterUpdate = ptrType.Implements(afterUpdaterType)
+	m.HasBeforeDelete = ptrType.Implements(beforeDeleterType)
+	m.HasAfterDelete = ptrType.Implements(afterDeleterType)
+	m.HasAfterFind = ptrType.Implements(afterFinderType)
 
 	if err := m.parseFields(typ, nil); err != nil {
 		return nil, err

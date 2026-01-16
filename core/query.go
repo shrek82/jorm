@@ -418,9 +418,11 @@ func (q *Query) queryRow(sqlStr string, args []any, dest any) error {
 	}
 
 	// AfterFind hook
-	if h, ok := dest.(AfterFinder); ok {
-		if err := h.AfterFind(); err != nil {
-			return q.handleError(err)
+	if m.HasAfterFind {
+		if h, ok := dest.(model.AfterFinder); ok {
+			if err := h.AfterFind(); err != nil {
+				return q.handleError(fmt.Errorf("AfterFind hook failed: %w", err))
+			}
 		}
 	}
 
@@ -472,9 +474,11 @@ func (q *Query) queryRows(sqlStr string, args []any, dest any) error {
 		}
 
 		// AfterFind hook
-		if h, ok := itemInterface.(AfterFinder); ok {
-			if err := h.AfterFind(); err != nil {
-				return fmt.Errorf("AfterFind hook failed: %w", err)
+		if m.HasAfterFind {
+			if h, ok := itemInterface.(model.AfterFinder); ok {
+				if err := h.AfterFind(); err != nil {
+					return fmt.Errorf("AfterFind hook failed: %w", err)
+				}
 			}
 		}
 
@@ -672,9 +676,11 @@ func (q *Query) Insert(value any) (int64, error) {
 		return 0, fmt.Errorf("failed to get model: %w", err)
 	}
 
-	if h, ok := value.(BeforeInserter); ok {
-		if err := h.BeforeInsert(); err != nil {
-			return 0, fmt.Errorf("BeforeInsert hook failed: %w", err)
+	if m.HasBeforeInsert {
+		if h, ok := value.(model.BeforeInserter); ok {
+			if err := h.BeforeInsert(); err != nil {
+				return 0, fmt.Errorf("BeforeInsert hook failed: %w", err)
+			}
 		}
 	}
 
@@ -695,9 +701,11 @@ func (q *Query) Insert(value any) (int64, error) {
 		setPKValue(value, m.PKField, id)
 	}
 
-	if h, ok := value.(AfterInserter); ok {
-		if err := h.AfterInsert(id); err != nil {
-			return 0, q.handleError(fmt.Errorf("AfterInsert hook failed: %w", err))
+	if m.HasAfterInsert {
+		if h, ok := value.(model.AfterInserter); ok {
+			if err := h.AfterInsert(id); err != nil {
+				return 0, q.handleError(fmt.Errorf("AfterInsert hook failed: %w", err))
+			}
 		}
 	}
 
@@ -803,9 +811,11 @@ func (q *Query) BatchInsert(values any) (int64, error) {
 		}
 
 		// Hooks
-		if h, ok := item.(BeforeInserter); ok {
-			if err := h.BeforeInsert(); err != nil {
-				return 0, err
+		if m.HasBeforeInsert {
+			if h, ok := item.(model.BeforeInserter); ok {
+				if err := h.BeforeInsert(); err != nil {
+					return 0, err
+				}
 			}
 		}
 
@@ -834,14 +844,16 @@ func (q *Query) BatchInsert(values any) (int64, error) {
 	totalAffected, _ := res.RowsAffected()
 
 	// AfterInsert hooks (Batch)
-	for i := 0; i < sliceVal.Len(); i++ {
-		item := sliceVal.Index(i).Interface()
-		if h, ok := item.(AfterInserter); ok {
-			// Note: LastInsertId in batch mode is driver-dependent
-			// Usually returns the first ID of the batch
-			id, _ := res.LastInsertId()
-			if err := h.AfterInsert(id + int64(i)); err != nil {
-				return totalAffected, q.handleError(err)
+	if m.HasAfterInsert {
+		for i := 0; i < sliceVal.Len(); i++ {
+			item := sliceVal.Index(i).Interface()
+			if h, ok := item.(model.AfterInserter); ok {
+				// Note: LastInsertId in batch mode is driver-dependent
+				// Usually returns the first ID of the batch
+				id, _ := res.LastInsertId()
+				if err := h.AfterInsert(id + int64(i)); err != nil {
+					return totalAffected, q.handleError(err)
+				}
 			}
 		}
 	}
@@ -887,9 +899,11 @@ func (q *Query) Update(value any) (int64, error) {
 			return 0, fmt.Errorf("failed to get model: %w", err)
 		}
 
-		if h, ok := value.(BeforeUpdater); ok {
-			if err := h.BeforeUpdate(); err != nil {
-				return 0, fmt.Errorf("BeforeUpdate hook failed: %w", err)
+		if m.HasBeforeUpdate {
+			if h, ok := value.(model.BeforeUpdater); ok {
+				if err := h.BeforeUpdate(); err != nil {
+					return 0, fmt.Errorf("BeforeUpdate hook failed: %w", err)
+				}
 			}
 		}
 
@@ -915,8 +929,8 @@ func (q *Query) Update(value any) (int64, error) {
 		return 0, q.handleError(fmt.Errorf("failed to get rows affected: %w", err))
 	}
 
-	if reflect.TypeOf(value).Kind() != reflect.Map {
-		if h, ok := value.(AfterUpdater); ok {
+	if reflect.TypeOf(value).Kind() != reflect.Map && m != nil && m.HasAfterUpdate {
+		if h, ok := value.(model.AfterUpdater); ok {
 			if err := h.AfterUpdate(); err != nil {
 				return 0, q.handleError(fmt.Errorf("AfterUpdate hook failed: %w", err))
 			}
@@ -946,9 +960,11 @@ func (q *Query) Delete(value ...any) (int64, error) {
 			return 0, fmt.Errorf("failed to get model: %w", err)
 		}
 
-		if h, ok := value[0].(BeforeDeleter); ok {
-			if err := h.BeforeDelete(); err != nil {
-				return 0, fmt.Errorf("BeforeDelete hook failed: %w", err)
+		if m.HasBeforeDelete {
+			if h, ok := value[0].(model.BeforeDeleter); ok {
+				if err := h.BeforeDelete(); err != nil {
+					return 0, fmt.Errorf("BeforeDelete hook failed: %w", err)
+				}
 			}
 		}
 
@@ -981,8 +997,8 @@ func (q *Query) Delete(value ...any) (int64, error) {
 		return 0, q.handleError(fmt.Errorf("failed to get rows affected: %w", err))
 	}
 
-	if len(value) > 0 {
-		if h, ok := value[0].(AfterDeleter); ok {
+	if len(value) > 0 && m != nil && m.HasAfterDelete {
+		if h, ok := value[0].(model.AfterDeleter); ok {
 			if err := h.AfterDelete(); err != nil {
 				return 0, q.handleError(fmt.Errorf("AfterDelete hook failed: %w", err))
 			}

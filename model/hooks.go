@@ -1,4 +1,4 @@
-package core
+package model
 
 // BeforeInserter is the interface for the BeforeInsert hook.
 // It is called before a record is inserted into the database.

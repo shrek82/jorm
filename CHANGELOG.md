@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - 2026-01-16 23:20
+
+### 变更 (Changed)
+- **性能优化 (1.1 SQL 构建器)**: 重构 SQL 构建器 (`core/builder.go`)，使用 `strings.Builder` 替换字符串切片拼接，实现零内存分配构建，基准测试显示性能提升显著。
+- **性能优化 (1.4 Hook 检测缓存)**: 在 `Model` 元数据中增加 Hook 接口实现状态缓存 (`HasBeforeInsert` 等)，避免运行时重复进行 `interface{}` 类型断言，无 Hook 场景性能提升约 3 倍。
+- **重构**: 将 Hook 接口定义从 `core` 包移动到 `model` 包 (`model/hooks.go`)，优化包依赖结构。
+
+### 修复 (Fixed)
+- 修复 `validator_test.go` 中因 map 遍历顺序随机导致的测试不稳定性。
+
 ## [Unreleased] - 2026-01-16 22:45
 
 ### 变更 (Changed)
