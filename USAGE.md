@@ -493,13 +493,13 @@ db.SetLogger(jorm.StdLogger)
 
 // 自定义日志格式
 db.SetLogger(&jorm.StdLoggerConfig{
-    Level:      jorm.LogLevelInfo,
+    Level:      jorm.Info,
     Format:     "json", // 或 "text"
     TimeFormat: "2006-01-02 15:04:05",
 })
 
 // 关闭SQL日志
-db.SetLogLevel(jorm.LogLevelSilent)
+db.SetLogLevel(jorm.Silent)
 ```
 
 ## 错误处理

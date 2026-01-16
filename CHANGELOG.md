@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - 2026-01-16 17:30
+
+### 移除 (Removed)
+- 移除冗长的日志级别常量 `LogLevelSilent`, `LogLevelError`, `LogLevelWarn`, `LogLevelInfo`, `LogLevelDebug`，彻底切换为短命名常量（Silent, Error, Warn, Info）。
+- 移除 `logger` 包中的 `Debug` 级别（因 `LogLevelDebug` 移除且无实际使用场景）。
+
+### 变更 (Changed)
+- 更新文档 (`USAGE.md`, `docs/*.md`) 和测试用例，统一使用 `logger.Info`, `logger.Error` 等短常量。
+
 ## [v1.0.0-alpha.8] - 2026-01-16 17:15
 
 ### 新增 (Added)
