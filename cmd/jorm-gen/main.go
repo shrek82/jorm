@@ -51,6 +51,7 @@ type Field struct {
 	Name      string // Go 结构体字段名
 	Column    string // 数据库列名
 	Type      string // Go 类型
+	DBType    string // 原始数据库类型
 	Tag       string // jorm 标签
 	Comment   string // 数据库字段注释
 	IsPK      bool
@@ -217,6 +218,7 @@ func fetchTableInfo(db *sql.DB, driver, table string) ([]Field, error) {
 				Name:      snakeToCamel(name, true),
 				Column:    name,
 				Type:      mapType(dataType),
+				DBType:    dataType,
 				IsPK:      pk == 1,
 				IsNotNull: notnull == 1,
 				Default:   dfltValue.String,
@@ -230,9 +232,6 @@ func fetchTableInfo(db *sql.DB, driver, table string) ([]Field, error) {
 			if strings.Contains(dataType, "(") {
 				fmt.Sscanf(dataType[strings.Index(dataType, "(")+1:], "%d", &f.Size)
 			}
-
-			// Unique 检查 (SQLite 比较麻烦，暂时简单处理或略过，因为 UNI 标签在 jorm 中不是必须的)
-			// 这里可以后续优化
 
 			f.Tag = generateTag(f)
 			fields = append(fields, f)
@@ -264,6 +263,7 @@ func fetchTableInfo(db *sql.DB, driver, table string) ([]Field, error) {
 				Name:      snakeToCamel(field, true),
 				Column:    field,
 				Type:      mapType(typ),
+				DBType:    typ,
 				Comment:   comment,
 				IsPK:      key == "PRI",
 				IsNotNull: null == "NO",
@@ -323,6 +323,7 @@ func fetchTableInfo(db *sql.DB, driver, table string) ([]Field, error) {
 				Name:      snakeToCamel(name, true),
 				Column:    name,
 				Type:      mapType(dataType),
+				DBType:    dataType,
 				Comment:   comment.String,
 				IsPK:      isPK == "YES",
 				IsNotNull: isNullable == "NO",
@@ -343,17 +344,45 @@ func fetchTableInfo(db *sql.DB, driver, table string) ([]Field, error) {
 
 // mapType 将数据库类型映射为 Go 类型
 func mapType(dbType string) string {
-	dbType = strings.ToUpper(dbType)
+	dbTypeUpper := strings.ToUpper(dbType)
+	// 移除括号及其内容，以便匹配基础类型，例如 "TINYINT(1)" -> "TINYINT"
+	if idx := strings.Index(dbTypeUpper, "("); idx != -1 {
+		dbTypeUpper = dbTypeUpper[:idx]
+	}
+	dbTypeUpper = strings.TrimSpace(dbTypeUpper)
+
 	switch {
-	case strings.Contains(dbType, "INT"):
+	case dbTypeUpper == "TINYINT":
+		return "int8"
+	case dbTypeUpper == "SMALLINT":
+		return "int16"
+	case dbTypeUpper == "MEDIUMINT":
+		return "int32"
+	case dbTypeUpper == "INT" || dbTypeUpper == "INTEGER":
+		return "int32"
+	case dbTypeUpper == "BIGINT":
 		return "int64"
-	case strings.Contains(dbType, "CHAR"), strings.Contains(dbType, "TEXT"):
-		return "string"
-	case strings.Contains(dbType, "FLOAT"), strings.Contains(dbType, "DOUBLE"), strings.Contains(dbType, "DECIMAL"):
-		return "float64"
-	case strings.Contains(dbType, "BOOL"):
+	case dbTypeUpper == "BOOLEAN" || dbTypeUpper == "BOOL":
 		return "bool"
-	case strings.Contains(dbType, "TIME"), strings.Contains(dbType, "DATE"), strings.Contains(dbType, "TIMESTAMP"):
+	case dbTypeUpper == "TEXT" || dbTypeUpper == "LONGTEXT" || dbTypeUpper == "MEDIUMTEXT":
+		return "string"
+	case dbTypeUpper == "BLOB" || dbTypeUpper == "LONGBLOB" || dbTypeUpper == "MEDIUMBLOB" || strings.HasPrefix(dbTypeUpper, "BINARY") || strings.HasPrefix(dbTypeUpper, "VARBINARY"):
+		return "[]byte"
+	case strings.Contains(dbTypeUpper, "VARCHAR") || strings.Contains(dbTypeUpper, "CHAR"):
+		return "string"
+	case dbTypeUpper == "DECIMAL" || dbTypeUpper == "NUMERIC":
+		return "float64"
+	case dbTypeUpper == "FLOAT":
+		return "float32"
+	case dbTypeUpper == "DOUBLE":
+		return "float64"
+	case dbTypeUpper == "JSON":
+		return "string"
+	case dbTypeUpper == "DATE":
+		return "time.Time"
+	case dbTypeUpper == "TIME":
+		return "time.Time"
+	case dbTypeUpper == "DATETIME" || dbTypeUpper == "TIMESTAMP":
 		return "time.Time"
 	default:
 		return "any"
@@ -379,7 +408,8 @@ func generateTag(f Field) string {
 	if f.Default != "" {
 		tags = append(tags, fmt.Sprintf("default:%s", f.Default))
 	}
-	if f.Size > 0 {
+	// 只对字符串或字节数组类型生成 size 标签
+	if f.Size > 0 && (f.Type == "string" || f.Type == "[]byte") {
 		tags = append(tags, fmt.Sprintf("size:%d", f.Size))
 	}
 
@@ -389,6 +419,47 @@ func generateTag(f Field) string {
 		tags = append(tags, "auto_time")
 	} else if colLower == "updated_at" {
 		tags = append(tags, "auto_update")
+	}
+
+	// 生成 type 标签 (针对特定数据库类型)
+	if f.DBType != "" {
+		dbTypeUpper := strings.ToUpper(f.DBType)
+		// 移除括号以便匹配基础类型
+		baseType := dbTypeUpper
+		if idx := strings.Index(baseType, "("); idx != -1 {
+			baseType = baseType[:idx]
+		}
+		baseType = strings.TrimSpace(baseType)
+
+		switch baseType {
+		case "TINYINT":
+			tags = append(tags, "type:tinyint")
+		case "SMALLINT":
+			tags = append(tags, "type:smallint")
+		case "MEDIUMINT":
+			tags = append(tags, "type:mediumint")
+		case "BIGINT":
+			tags = append(tags, "type:bigint")
+		case "BLOB", "LONGBLOB", "MEDIUMBLOB":
+			tags = append(tags, "type:blob")
+		case "TEXT", "LONGTEXT", "MEDIUMTEXT":
+			tags = append(tags, "type:text")
+		case "JSON":
+			tags = append(tags, "type:json")
+		case "DATE":
+			tags = append(tags, "type:date")
+		case "DATETIME":
+			tags = append(tags, "type:datetime")
+		case "TIMESTAMP":
+			tags = append(tags, "type:timestamp")
+		case "BOOLEAN", "BOOL":
+			tags = append(tags, "type:boolean")
+		}
+
+		// Decimal 特殊处理，保留精度
+		if strings.HasPrefix(dbTypeUpper, "DECIMAL") || strings.HasPrefix(dbTypeUpper, "NUMERIC") {
+			tags = append(tags, fmt.Sprintf("type:%s", strings.ToLower(f.DBType)))
+		}
 	}
 
 	return strings.Join(tags, ";")

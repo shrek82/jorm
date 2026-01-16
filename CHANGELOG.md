@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.0.0-alpha.8] - 2026-01-16 17:15
+
+### 新增 (Added)
+- `jorm-gen` 工具升级：支持 `TINYINT`, `SMALLINT`, `JSON`, `BINARY`, `VARBINARY` 等更多数据库类型的精确映射。
+- `jorm-gen` 工具升级：根据数据库原始类型自动生成 `type:xxx` 标签，确保与 jorm 核心特性完全兼容。
+
+### 优化 (Changed)
+- 优化 `jorm-gen` 标签生成逻辑：对于 `decimal`、`tinyint` 等已有明确 `type` 标签的字段，不再重复生成 `size` 标签，保持代码整洁。
+
 ## [v1.0.0-alpha.7] - 2026-01-16
 
 ### 新增 (Added)
