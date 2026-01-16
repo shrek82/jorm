@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - 2026-01-17 12:00
+
+### 修复 (Fixed)
+- 修复 `model` 包中的模型缓存冲突问题：将缓存 Key 从字符串 (`PkgPath.Name`) 更改为 `reflect.Type`，解决了匿名结构体（及其他空名类型）导致元数据复用错误的问题。
+- 修复 `core/preload.go` 编译错误：补充缺失的 `getFieldValue` 和 `getRelationFieldIndex` 反射辅助函数，恢复关联预加载功能的可用性。
+
 ## [Unreleased] - 2026-01-16 23:20
 
 ### 变更 (Changed)
