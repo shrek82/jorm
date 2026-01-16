@@ -23,18 +23,19 @@ const (
 type LogLevel int
 
 const (
-	Silent LogLevel = iota
-	Error
-	Warn
-	Info
+	LevelSilent LogLevel = iota
+	LevelError
+	LevelWarn
+	LevelInfo
+	LevelDebug
 )
 
 // LogFormat defines the output format of the log
 type LogFormat string
 
 const (
-	LogFormatText LogFormat = "text"
-	LogFormatJSON LogFormat = "json"
+	FormatText LogFormat = "text"
+	FormatJSON LogFormat = "json"
 )
 
 // Logger is the interface for logging SQL and internal messages
@@ -106,8 +107,8 @@ type stdLogger struct {
 func NewStdLogger() Logger {
 	return &stdLogger{
 		baseLogger: baseLogger{
-			level:        Error,
-			format:       LogFormatText,
+			level:        LevelError,
+			format:       FormatText,
 			writer:       os.Stdout,
 			levelWriters: make(map[LogLevel]io.Writer),
 			fields:       make(map[string]any),
@@ -126,26 +127,26 @@ func (l *stdLogger) WithFields(fields map[string]any) Logger {
 }
 
 func (l *stdLogger) Info(format string, args ...any) {
-	if l.level >= Info {
+	if l.level >= LevelInfo {
 		l.emit("INFO", format, args)
 	}
 }
 
 func (l *stdLogger) Warn(format string, args ...any) {
-	if l.level >= Warn {
+	if l.level >= LevelWarn {
 		l.emit("WARN", format, args)
 	}
 }
 
 func (l *stdLogger) Error(format string, args ...any) {
-	if l.level >= Error {
+	if l.level >= LevelError {
 		l.emit("ERROR", format, args)
 	}
 }
 
 func (l *stdLogger) SQL(sql string, duration time.Duration, args ...any) {
-	if l.level >= Info {
-		if l.format == LogFormatJSON {
+	if l.level >= LevelDebug {
+		if l.format == FormatJSON {
 			l.emit("SQL", "", []any{"sql", sql, "duration", duration.String(), "args", args})
 		} else {
 			l.emit("SQL", "[%v] %s | args: %v", []any{duration, sql, args})
@@ -173,7 +174,7 @@ func (l *stdLogger) emit(level string, fmtStr string, args []any) {
 		return
 	}
 
-	if l.format == LogFormatJSON {
+	if l.format == FormatJSON {
 		data := make(map[string]any)
 		for k, v := range l.fields {
 			data[k] = v
@@ -229,14 +230,16 @@ func (l *stdLogger) emit(level string, fmtStr string, args []any) {
 
 func (l *stdLogger) parseLevel(level string) LogLevel {
 	switch strings.ToUpper(level) {
-	case "ERROR":
-		return Error
-	case "WARN":
-		return Warn
+	case "DEBUG":
+		return LevelDebug
 	case "INFO", "SQL":
-		return Info
+		return LevelInfo
+	case "WARN":
+		return LevelWarn
+	case "ERROR":
+		return LevelError
 	default:
-		return Info
+		return LevelInfo
 	}
 }
 

@@ -38,8 +38,8 @@ func setupMySQLTestDB(t *testing.T) (*core.DB, func()) {
 	}
 
 	myLog := logger.NewStdLogger()
-	myLog.SetLevel(logger.Info)
-	myLog.SetFormat(logger.LogFormatText)
+	myLog.SetLevel(logger.LevelInfo)
+	myLog.SetFormat(logger.FormatText)
 	db.SetLogger(myLog)
 
 	_, _ = db.Exec("DROP TABLE IF EXISTS `user`")

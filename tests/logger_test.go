@@ -14,9 +14,9 @@ func TestStructuredLogger(t *testing.T) {
 	t.Run("TextFormat", func(t *testing.T) {
 		buf := &bytes.Buffer{}
 		l := logger.NewStdLogger()
-		l.SetLevel(logger.Info)
+		l.SetLevel(logger.LevelInfo)
 		l.SetOutput(buf)
-		l.SetFormat(logger.LogFormatText)
+		l.SetFormat(logger.FormatText)
 		l.Info("hello %s", "world")
 
 		output := buf.String()
@@ -28,9 +28,9 @@ func TestStructuredLogger(t *testing.T) {
 	t.Run("JSONFormat", func(t *testing.T) {
 		buf := &bytes.Buffer{}
 		l := logger.NewStdLogger()
-		l.SetLevel(logger.Info)
+		l.SetLevel(logger.LevelInfo)
 		l.SetOutput(buf)
-		l.SetFormat(logger.LogFormatJSON)
+		l.SetFormat(logger.FormatJSON)
 		l.Info("hello %s", "world")
 
 		var data map[string]any
@@ -49,9 +49,9 @@ func TestStructuredLogger(t *testing.T) {
 	t.Run("WithFields", func(t *testing.T) {
 		buf := &bytes.Buffer{}
 		l := logger.NewStdLogger()
-		l.SetLevel(logger.Info)
+		l.SetLevel(logger.LevelInfo)
 		l.SetOutput(buf)
-		l.SetFormat(logger.LogFormatJSON)
+		l.SetFormat(logger.FormatJSON)
 		l2 := l.WithFields(map[string]any{"request_id": "123"})
 		l2.Info("processed")
 
@@ -68,9 +68,9 @@ func TestStructuredLogger(t *testing.T) {
 	t.Run("SQLJSON", func(t *testing.T) {
 		buf := &bytes.Buffer{}
 		l := logger.NewStdLogger()
-		l.SetLevel(logger.Info)
+		l.SetLevel(logger.LevelDebug) // SQL is now Debug level
 		l.SetOutput(buf)
-		l.SetFormat(logger.LogFormatJSON)
+		l.SetFormat(logger.FormatJSON)
 		l.SQL("SELECT * FROM users", time.Millisecond*10, "arg1", 1)
 
 		var data map[string]any
@@ -90,9 +90,9 @@ func TestStructuredLogger(t *testing.T) {
 		mainBuf := &bytes.Buffer{}
 		errorBuf := &bytes.Buffer{}
 		l := logger.NewStdLogger()
-		l.SetLevel(logger.Info)
+		l.SetLevel(logger.LevelInfo)
 		l.SetOutput(mainBuf)
-		l.SetLevelOutput(logger.Error, errorBuf)
+		l.SetLevelOutput(logger.LevelError, errorBuf)
 
 		l.Info("this is info")
 		l.Error("this is error")
@@ -118,9 +118,9 @@ func TestStructuredLogger(t *testing.T) {
 	t.Run("LevelOutputOnly", func(t *testing.T) {
 		errorBuf := &bytes.Buffer{}
 		l := logger.NewStdLogger()
-		l.SetLevel(logger.Info)
+		l.SetLevel(logger.LevelInfo)
 		l.SetOutput(nil) // Disable default output
-		l.SetLevelOutput(logger.Error, errorBuf)
+		l.SetLevelOutput(logger.LevelError, errorBuf)
 
 		l.Info("this is info")
 		l.Error("this is error")

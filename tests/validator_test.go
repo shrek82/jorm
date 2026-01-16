@@ -381,8 +381,6 @@ func TestValidator(t *testing.T) {
 			t.Fatal("Expected errors, got nil")
 		}
 
-		t.Error(jorm.FirstMsg(err))
-
 		errs, ok := err.(jorm.ValidationErrors)
 		if !ok {
 			t.Fatalf("Expected ValidationErrors, got %T", err)

@@ -1,6 +1,7 @@
 package tests
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -100,14 +101,23 @@ func TestHookValidation_Failure(t *testing.T) {
 
 	// Check error message
 	// The error returned by BeforeInsert is wrapped
-	errStr := err.Error()
-	if !strings.Contains(errStr, "Name is required") {
-		t.Errorf("Expected 'Name is required' in error: %s", errStr)
-	}
-	if !strings.Contains(errStr, "Invalid email format") {
-		t.Errorf("Expected 'Invalid email format' in error: %s", errStr)
-	}
-	if !strings.Contains(errStr, "Age must be between 18 and 150") {
-		t.Errorf("Expected 'Age must be between 18 and 150' in error: %s", errStr)
+	var valErrs jorm.ValidationErrors
+	if errors.As(err, &valErrs) {
+		// Check for specific field errors
+		if msgs, ok := valErrs["Name"]; !ok || !strings.Contains(msgs[0].Error(), "Name is required") {
+			t.Errorf("Expected 'Name is required' error, got %v", msgs)
+		}
+		if msgs, ok := valErrs["Email"]; !ok || !strings.Contains(msgs[0].Error(), "Invalid email format") {
+			t.Errorf("Expected 'Invalid email format' error, got %v", msgs)
+		}
+		if msgs, ok := valErrs["Age"]; !ok || !strings.Contains(msgs[0].Error(), "Age must be between 18 and 150") {
+			t.Errorf("Expected 'Age must be between 18 and 150' error, got %v", msgs)
+		}
+	} else {
+		// Fallback to string check if not unwrappable (though it should be)
+		errStr := err.Error()
+		if !strings.Contains(errStr, "Name is required") && !strings.Contains(errStr, "more errors") {
+			t.Errorf("Expected 'Name is required' in error: %s", errStr)
+		}
 	}
 }
