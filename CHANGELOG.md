@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - 2026-01-16 22:45
+
+### 变更 (Changed)
+- 重构 `logger` 包配置：
+  - 日志级别常量统一更名为 `LevelDebug`, `LevelInfo`, `LevelWarn`, `LevelError`, `LevelSilent`。
+  - 日志格式常量统一更名为 `FormatText`, `FormatJSON`。
+  - **行为变更**：SQL 语句现在仅在 `LevelDebug` 级别输出，`LevelInfo` 不再包含 SQL 语句。
+- API 重命名：将 `jorm.Var` 重命名为 `jorm.Check`，语义更明确，用于单变量校验。
+- 更新文档 `docs/13-日志配置.md` 以反映最新的日志配置方式。
+
+### 新增 (Added)
+- `logger` 包新增 `LevelDebug` 级别，专门用于输出调试信息（如 SQL 语句）。
+
 ## [Unreleased] - 2026-01-16 17:30
 
 ### 移除 (Removed)
