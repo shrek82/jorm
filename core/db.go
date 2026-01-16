@@ -42,6 +42,26 @@ type DB struct {
 	lastErr      error
 	lastErrTime  time.Time
 	cooldownTime time.Duration
+
+	// Components and Middleware
+	components  map[string]Component
+	middlewares []QueryMiddleware
+}
+
+// Use registers one or more middleware components to the DB.
+// It initializes each middleware and adds it to the execution chain.
+func (db *DB) Use(middleware ...QueryMiddleware) {
+	db.middlewares = append(db.middlewares, middleware...)
+	for _, m := range middleware {
+		db.components[m.Name()] = m
+		if err := m.Init(db); err != nil {
+			// Since we can't return error here easily without breaking API, just log it.
+			// In a real app, you might want to panic or handle this better.
+			if db.logger != nil {
+				db.logger.Error("Failed to init middleware %s: %v", m.Name(), err)
+			}
+		}
+	}
 }
 
 // Open initializes a new DB instance with the given driver and DSN.
@@ -107,6 +127,7 @@ func Open(driver, dsn string, opts *Options) (*DB, error) {
 		dialect:      d,
 		logger:       logger.NewStdLogger(),
 		cooldownTime: 5 * time.Second, // Default cooldown if DB is down
+		components:   make(map[string]Component),
 	}, nil
 }
 
@@ -205,18 +226,7 @@ func (db *DB) logSQL(sql string, duration time.Duration, args ...any) {
 // It returns a sql.Result and any error encountered during execution.
 // It also handles health checks and error reporting.
 func (db *DB) Exec(sql string, args ...any) (sql.Result, error) {
-	if err := db.checkHealth(); err != nil {
-		return nil, err
-	}
-	start := time.Now()
-	res, err := db.pool.ExecContext(context.Background(), sql, args...)
-	db.logSQL(sql, time.Since(start), args...)
-	if err != nil {
-		db.reportError(err)
-		return nil, fmt.Errorf("failed to execute sql [%s]: %w", sql, err)
-	}
-	db.reportError(nil)
-	return res, nil
+	return db.newQuery(db.pool).Raw(sql, args...).ExecResult()
 }
 
 // Transaction executes the provided function within a database transaction.

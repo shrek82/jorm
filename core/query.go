@@ -32,6 +32,9 @@ type Query struct {
 	err      error
 	rawSQL   string
 	rawArgs  []any
+	LastSQL  string
+	LastArgs []any
+	Dest     any // The destination for query results (set by Find/First)
 	preloads []*preloadConfig
 	logger   logger.Logger
 }
@@ -224,6 +227,8 @@ func (q *Query) WithFields(fields map[string]any) *Query {
 }
 
 func (q *Query) logSQL(sql string, duration time.Duration, args ...any) {
+	q.LastSQL = sql
+	q.LastArgs = args
 	if q.logger != nil {
 		q.logger.SQL(sql, duration, args...)
 	} else if q.db != nil {
@@ -271,17 +276,56 @@ func (q *Query) Having(cond string, args ...any) *Query {
 	return q
 }
 
+// GetSelectSQL generates the SELECT SQL statement and arguments for the current query.
+// This is useful for middleware that needs to know the SQL before execution (e.g., caching).
+func (q *Query) GetSelectSQL() (string, []any) {
+	if q.rawSQL != "" {
+		return q.rawSQL, q.rawArgs
+	}
+	// Copy builder to avoid side effects? BuildSelect usually doesn't have side effects.
+	return q.builder.BuildSelect()
+}
+
+func (q *Query) executeWithMiddleware(final QueryFunc) (*Result, error) {
+	var handler QueryFunc = final
+	middlewares := q.db.middlewares
+	for i := len(middlewares) - 1; i >= 0; i-- {
+		m := middlewares[i]
+		next := handler
+		handler = func(ctx context.Context, query *Query) (*Result, error) {
+			return m.Process(ctx, query, next)
+		}
+	}
+	return handler(q.ctx, q)
+}
+
 // First retrieves the first record matching the query into dest.
 func (q *Query) First(dest any) error {
 	defer PutBuilder(q.builder)
 	if q.err != nil {
 		return q.err
 	}
-	q.builder.Limit(1)
-	sqlStr, args := q.builder.BuildSelect()
-	if err := q.queryRow(sqlStr, args, dest); err != nil {
-		return fmt.Errorf("First failed: %w", err)
+	q.Dest = dest
+
+	final := func(ctx context.Context, query *Query) (*Result, error) {
+		query.builder.Limit(1)
+		sqlStr, args := query.builder.BuildSelect()
+		if err := query.queryRow(sqlStr, args, dest); err != nil {
+			return &Result{Error: err}, fmt.Errorf("First failed: %w", err)
+		}
+		return &Result{Data: dest}, nil
 	}
+
+	res, err := q.executeWithMiddleware(final)
+	if err != nil {
+		return err
+	}
+
+	if res.Data != dest && res.Data != nil {
+		// If middleware returned cached data, copy it to dest
+		q.copyResult(res.Data, dest)
+	}
+
 	return q.executePreloads(dest)
 }
 
@@ -291,11 +335,40 @@ func (q *Query) Find(dest any) error {
 	if q.err != nil {
 		return q.err
 	}
-	sqlStr, args := q.builder.BuildSelect()
-	if err := q.queryRows(sqlStr, args, dest); err != nil {
-		return fmt.Errorf("Find failed: %w", err)
+	q.Dest = dest
+
+	final := func(ctx context.Context, query *Query) (*Result, error) {
+		sqlStr, args := query.builder.BuildSelect()
+		if err := query.queryRows(sqlStr, args, dest); err != nil {
+			return &Result{Error: err}, fmt.Errorf("Find failed: %w", err)
+		}
+		return &Result{Data: dest}, nil
 	}
+
+	res, err := q.executeWithMiddleware(final)
+	if err != nil {
+		return err
+	}
+
+	if res.Data != dest && res.Data != nil {
+		q.copyResult(res.Data, dest)
+	}
+
 	return q.executePreloads(dest)
+}
+
+func (q *Query) copyResult(src, dest any) {
+	srcVal := reflect.ValueOf(src)
+	destVal := reflect.ValueOf(dest)
+	if srcVal.Kind() == reflect.Ptr {
+		srcVal = srcVal.Elem()
+	}
+	if destVal.Kind() == reflect.Ptr {
+		destVal = destVal.Elem()
+	}
+	if destVal.CanSet() {
+		destVal.Set(srcVal)
+	}
 }
 
 // Count returns the total number of records matching the query.
@@ -305,17 +378,36 @@ func (q *Query) Count() (int64, error) {
 	if q.err != nil {
 		return 0, q.err
 	}
-	q.builder.Select("COUNT(*)")
-	sqlStr, args := q.builder.BuildSelect()
 
-	var count int64
-	start := time.Now()
-	err := q.executor.QueryRowContext(q.ctx, sqlStr, args...).Scan(&count)
-	q.logSQL(sqlStr, time.Since(start), args...)
-	if err != nil {
-		return 0, fmt.Errorf("Count failed: %w", err)
+	final := func(ctx context.Context, query *Query) (*Result, error) {
+		query.builder.Select("COUNT(*)")
+		sqlStr, args := query.builder.BuildSelect()
+
+		var count int64
+		start := time.Now()
+		err := query.executor.QueryRowContext(ctx, sqlStr, args...).Scan(&count)
+		query.logSQL(sqlStr, time.Since(start), args...)
+		if err != nil {
+			return &Result{Error: err}, fmt.Errorf("Count failed: %w", err)
+		}
+		return &Result{Data: count}, nil
 	}
-	return count, nil
+
+	res, err := q.executeWithMiddleware(final)
+	if err != nil {
+		return 0, err
+	}
+
+	if count, ok := res.Data.(int64); ok {
+		return count, nil
+	}
+	// Try to convert if it's float64 or other numeric type (e.g. from JSON)
+	val := reflect.ValueOf(res.Data)
+	if val.CanConvert(reflect.TypeOf(int64(0))) {
+		return val.Convert(reflect.TypeOf(int64(0))).Int(), nil
+	}
+
+	return 0, fmt.Errorf("invalid count result type: %T", res.Data)
 }
 
 // Sum calculates the sum of the specified numeric column for records matching the query.
@@ -325,21 +417,39 @@ func (q *Query) Sum(column string) (float64, error) {
 	if q.err != nil {
 		return 0, q.err
 	}
-	quoted := q.db.dialect.Quote(column)
-	q.builder.Select("SUM(" + quoted + ")")
-	sqlStr, args := q.builder.BuildSelect()
 
-	var sum sql.NullFloat64
-	start := time.Now()
-	err := q.executor.QueryRowContext(q.ctx, sqlStr, args...).Scan(&sum)
-	q.logSQL(sqlStr, time.Since(start), args...)
+	final := func(ctx context.Context, query *Query) (*Result, error) {
+		quoted := query.db.dialect.Quote(column)
+		query.builder.Select("SUM(" + quoted + ")")
+		sqlStr, args := query.builder.BuildSelect()
+
+		var sum sql.NullFloat64
+		start := time.Now()
+		err := query.executor.QueryRowContext(ctx, sqlStr, args...).Scan(&sum)
+		query.logSQL(sqlStr, time.Since(start), args...)
+		if err != nil {
+			return &Result{Error: err}, fmt.Errorf("Sum failed for column %s: %w", column, err)
+		}
+		if !sum.Valid {
+			return &Result{Data: float64(0)}, nil
+		}
+		return &Result{Data: sum.Float64}, nil
+	}
+
+	res, err := q.executeWithMiddleware(final)
 	if err != nil {
-		return 0, fmt.Errorf("Sum failed for column %s: %w", column, err)
+		return 0, err
 	}
-	if !sum.Valid {
-		return 0, nil
+
+	if s, ok := res.Data.(float64); ok {
+		return s, nil
 	}
-	return sum.Float64, nil
+	val := reflect.ValueOf(res.Data)
+	if val.CanConvert(reflect.TypeOf(float64(0))) {
+		return val.Convert(reflect.TypeOf(float64(0))).Float(), nil
+	}
+
+	return 0, fmt.Errorf("invalid sum result type: %T", res.Data)
 }
 
 // Scan executes a raw query and scans the result into dest.
@@ -348,38 +458,86 @@ func (q *Query) Scan(dest any) error {
 	if q.rawSQL == "" {
 		return fmt.Errorf("raw sql is empty")
 	}
+	q.Dest = dest
 
 	val := reflect.ValueOf(dest)
 	if val.Kind() != reflect.Ptr {
 		return fmt.Errorf("dest must be a pointer")
 	}
 
-	if val.Elem().Kind() == reflect.Slice {
-		return q.queryRows(q.rawSQL, q.rawArgs, dest)
+	final := func(ctx context.Context, query *Query) (*Result, error) {
+		var err error
+		if val.Elem().Kind() == reflect.Slice {
+			err = query.queryRows(query.rawSQL, query.rawArgs, dest)
+		} else {
+			err = query.queryRow(query.rawSQL, query.rawArgs, dest)
+		}
+
+		if err != nil {
+			return &Result{Error: err}, err
+		}
+		return &Result{Data: dest}, nil
 	}
-	return q.queryRow(q.rawSQL, q.rawArgs, dest)
+
+	res, err := q.executeWithMiddleware(final)
+	if err != nil {
+		return err
+	}
+
+	if res.Data != dest && res.Data != nil {
+		q.copyResult(res.Data, dest)
+	}
+
+	return nil
 }
 
 // Exec executes a raw SQL statement and returns the number of affected rows.
 func (q *Query) Exec() (int64, error) {
-	if q.rawSQL == "" {
-		return 0, fmt.Errorf("raw sql is empty")
-	}
-
-	start := time.Now()
-	res, err := q.executor.ExecContext(q.ctx, q.rawSQL, q.rawArgs...)
-	q.logSQL(q.rawSQL, time.Since(start), q.rawArgs...)
+	res, err := q.ExecResult()
 	if err != nil {
-		return 0, q.handleError(fmt.Errorf("raw sql execution failed: %w", err))
+		return 0, err
 	}
-
-	rows, err := res.RowsAffected()
-	if err != nil {
-		return 0, q.handleError(fmt.Errorf("failed to get affected rows: %w", err))
-	}
-
-	return rows, nil
+	return res.RowsAffected()
 }
+
+// ExecResult executes a raw SQL statement and returns the sql.Result.
+func (q *Query) ExecResult() (sql.Result, error) {
+	if q.rawSQL == "" {
+		return nil, fmt.Errorf("raw sql is empty")
+	}
+
+	final := func(ctx context.Context, query *Query) (*Result, error) {
+		start := time.Now()
+		res, err := query.executor.ExecContext(ctx, query.rawSQL, query.rawArgs...)
+		query.logSQL(query.rawSQL, time.Since(start), query.rawArgs...)
+		if err != nil {
+			return &Result{Error: err}, query.handleError(fmt.Errorf("raw sql execution failed: %w", err))
+		}
+
+		rows, err := res.RowsAffected()
+		if err != nil {
+			return &Result{Error: err}, query.handleError(fmt.Errorf("failed to get affected rows: %w", err))
+		}
+
+		lastId, _ := res.LastInsertId()
+		return &Result{RowsAffected: rows, LastInsertId: lastId}, nil
+	}
+
+	res, err := q.executeWithMiddleware(final)
+	if err != nil {
+		return nil, err
+	}
+
+	return &startResult{lastInsertId: res.LastInsertId, rowsAffected: res.RowsAffected}, nil
+}
+
+type startResult struct {
+	lastInsertId int64
+	rowsAffected int64
+}
+
+func (r *startResult) LastInsertId() (int64, error) { return r.lastInsertId, nil }
+func (r *startResult) RowsAffected() (int64, error) { return r.rowsAffected, nil }
 
 func (q *Query) handleError(err error) error {
 	if err != nil && q.db != nil {
@@ -671,46 +829,55 @@ func (q *Query) Insert(value any) (int64, error) {
 	if q.err != nil {
 		return 0, q.err
 	}
-	m, err := model.GetModel(value)
-	if err != nil {
-		return 0, fmt.Errorf("failed to get model: %w", err)
-	}
 
-	if m.HasBeforeInsert {
-		if h, ok := value.(model.BeforeInserter); ok {
-			if err := h.BeforeInsert(); err != nil {
-				return 0, fmt.Errorf("BeforeInsert hook failed: %w", err)
+	final := func(ctx context.Context, query *Query) (*Result, error) {
+		m, err := model.GetModel(value)
+		if err != nil {
+			return &Result{Error: err}, fmt.Errorf("failed to get model: %w", err)
+		}
+
+		if m.HasBeforeInsert {
+			if h, ok := value.(model.BeforeInserter); ok {
+				if err := h.BeforeInsert(); err != nil {
+					return &Result{Error: err}, fmt.Errorf("BeforeInsert hook failed: %w", err)
+				}
 			}
 		}
-	}
 
-	q.builder.SetTable(m.TableName)
-	cols, vals := getModelValues(m, value, false)
-	sqlStr, args := q.builder.BuildInsert(cols)
+		query.builder.SetTable(m.TableName)
+		cols, vals := getModelValues(m, value, false)
+		sqlStr, args := query.builder.BuildInsert(cols)
 
-	start := time.Now()
-	res, err := q.executor.ExecContext(q.ctx, sqlStr, append(vals, args...)...)
-	q.logSQL(sqlStr, time.Since(start), append(vals, args...)...)
-	if err != nil {
-		return 0, q.handleError(fmt.Errorf("Insert execution failed: %w", err))
-	}
+		start := time.Now()
+		res, err := query.executor.ExecContext(ctx, sqlStr, append(vals, args...)...)
+		query.logSQL(sqlStr, time.Since(start), append(vals, args...)...)
+		if err != nil {
+			return &Result{Error: err}, query.handleError(fmt.Errorf("Insert execution failed: %w", err))
+		}
 
-	id, _ := res.LastInsertId()
+		id, _ := res.LastInsertId()
 
-	if m.PKField != nil && m.PKField.IsAuto {
-		setPKValue(value, m.PKField, id)
-	}
+		if m.PKField != nil && m.PKField.IsAuto {
+			setPKValue(value, m.PKField, id)
+		}
 
-	if m.HasAfterInsert {
-		if h, ok := value.(model.AfterInserter); ok {
-			if err := h.AfterInsert(id); err != nil {
-				return 0, q.handleError(fmt.Errorf("AfterInsert hook failed: %w", err))
+		if m.HasAfterInsert {
+			if h, ok := value.(model.AfterInserter); ok {
+				if err := h.AfterInsert(id); err != nil {
+					return &Result{Error: err}, query.handleError(fmt.Errorf("AfterInsert hook failed: %w", err))
+				}
 			}
 		}
+
+		query.handleError(nil)
+		return &Result{LastInsertId: id, Data: value}, nil
 	}
 
-	q.handleError(nil)
-	return id, nil
+	res, err := q.executeWithMiddleware(final)
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId, nil
 }
 
 func getModelValues(m *model.Model, value any, update bool) ([]string, []any) {
@@ -777,89 +944,97 @@ func (q *Query) BatchInsert(values any) (int64, error) {
 		return 0, q.err
 	}
 
-	sliceVal := reflect.ValueOf(values)
-	if sliceVal.Kind() != reflect.Slice {
-		return 0, fmt.Errorf("values must be a slice")
+	final := func(ctx context.Context, query *Query) (*Result, error) {
+		sliceVal := reflect.ValueOf(values)
+		if sliceVal.Kind() != reflect.Slice {
+			return &Result{Error: fmt.Errorf("values must be a slice")}, fmt.Errorf("values must be a slice")
+		}
+
+		if sliceVal.Len() == 0 {
+			return &Result{RowsAffected: 0}, nil
+		}
+
+		// Use the first element to get model info
+		m, err := model.GetModel(sliceVal.Index(0).Interface())
+		if err != nil {
+			return &Result{Error: err}, err
+		}
+
+		var columns []string
+		for _, field := range m.Fields {
+			if !field.IsAuto {
+				columns = append(columns, field.Column)
+			}
+		}
+
+		sqlStr, _ := query.db.dialect.BatchInsertSQL(m.TableName, columns, sliceVal.Len())
+		var args []any
+		now := time.Now()
+
+		for i := 0; i < sliceVal.Len(); i++ {
+			item := sliceVal.Index(i).Interface()
+			val := reflect.ValueOf(item)
+			if val.Kind() == reflect.Ptr {
+				val = val.Elem()
+			}
+
+			// Hooks
+			if m.HasBeforeInsert {
+				if h, ok := item.(model.BeforeInserter); ok {
+					if err := h.BeforeInsert(); err != nil {
+						return &Result{Error: err}, err
+					}
+				}
+			}
+
+			for _, field := range m.Fields {
+				if field.IsAuto {
+					continue
+				}
+				fVal := val.Field(field.Index)
+				if (field.AutoTime || field.AutoUpdate) && fVal.CanSet() {
+					fVal.Set(reflect.ValueOf(now))
+				} else if fVal.CanSet() && field.Type.String() == "time.Time" && fVal.IsZero() {
+					// Auto-fill time.Time fields that are zero on insert for BatchInsert as well
+					fVal.Set(reflect.ValueOf(now))
+				}
+				args = append(args, fVal.Interface())
+			}
+		}
+
+		start := time.Now()
+		res, err := query.executor.ExecContext(query.ctx, sqlStr, args...)
+		query.logSQL(sqlStr, time.Since(start), args...)
+		if err != nil {
+			return &Result{Error: err}, query.handleError(err)
+		}
+
+		totalAffected, _ := res.RowsAffected()
+
+		// AfterInsert hooks (Batch)
+		if m.HasAfterInsert {
+			for i := 0; i < sliceVal.Len(); i++ {
+				item := sliceVal.Index(i).Interface()
+				if h, ok := item.(model.AfterInserter); ok {
+					// Note: LastInsertId in batch mode is driver-dependent
+					// Usually returns the first ID of the batch
+					id, _ := res.LastInsertId()
+					if err := h.AfterInsert(id + int64(i)); err != nil {
+						return &Result{RowsAffected: totalAffected, Error: err}, query.handleError(err)
+					}
+				}
+			}
+		}
+
+		query.handleError(nil)
+		return &Result{RowsAffected: totalAffected}, nil
 	}
 
-	if sliceVal.Len() == 0 {
-		return 0, nil
-	}
-
-	// Use the first element to get model info
-	m, err := model.GetModel(sliceVal.Index(0).Interface())
+	res, err := q.executeWithMiddleware(final)
 	if err != nil {
 		return 0, err
 	}
-
-	var columns []string
-	for _, field := range m.Fields {
-		if !field.IsAuto {
-			columns = append(columns, field.Column)
-		}
-	}
-
-	sqlStr, _ := q.db.dialect.BatchInsertSQL(m.TableName, columns, sliceVal.Len())
-	var args []any
-	now := time.Now()
-
-	for i := 0; i < sliceVal.Len(); i++ {
-		item := sliceVal.Index(i).Interface()
-		val := reflect.ValueOf(item)
-		if val.Kind() == reflect.Ptr {
-			val = val.Elem()
-		}
-
-		// Hooks
-		if m.HasBeforeInsert {
-			if h, ok := item.(model.BeforeInserter); ok {
-				if err := h.BeforeInsert(); err != nil {
-					return 0, err
-				}
-			}
-		}
-
-		for _, field := range m.Fields {
-			if field.IsAuto {
-				continue
-			}
-			fVal := val.Field(field.Index)
-			if (field.AutoTime || field.AutoUpdate) && fVal.CanSet() {
-				fVal.Set(reflect.ValueOf(now))
-			} else if fVal.CanSet() && field.Type.String() == "time.Time" && fVal.IsZero() {
-				// Auto-fill time.Time fields that are zero on insert for BatchInsert as well
-				fVal.Set(reflect.ValueOf(now))
-			}
-			args = append(args, fVal.Interface())
-		}
-	}
-
-	start := time.Now()
-	res, err := q.executor.ExecContext(q.ctx, sqlStr, args...)
-	q.logSQL(sqlStr, time.Since(start), args...)
-	if err != nil {
-		return 0, q.handleError(err)
-	}
-
-	totalAffected, _ := res.RowsAffected()
-
-	// AfterInsert hooks (Batch)
-	if m.HasAfterInsert {
-		for i := 0; i < sliceVal.Len(); i++ {
-			item := sliceVal.Index(i).Interface()
-			if h, ok := item.(model.AfterInserter); ok {
-				// Note: LastInsertId in batch mode is driver-dependent
-				// Usually returns the first ID of the batch
-				id, _ := res.LastInsertId()
-				if err := h.AfterInsert(id + int64(i)); err != nil {
-					return totalAffected, q.handleError(err)
-				}
-			}
-		}
-	}
-
-	q.handleError(nil)
-	return totalAffected, nil
+	return res.RowsAffected, nil
 }
 
 // UpdateWithValidator performs an update after successfully validating the data.
@@ -883,62 +1058,70 @@ func (q *Query) Update(value any) (int64, error) {
 		return 0, q.err
 	}
 
-	var data map[string]any
-	var m *model.Model
-	var err error
+	final := func(ctx context.Context, query *Query) (*Result, error) {
+		var data map[string]any
+		var m *model.Model
+		var err error
 
-	if reflect.TypeOf(value).Kind() == reflect.Map {
-		data = value.(map[string]any)
-		if q.model == nil {
-			return 0, fmt.Errorf("model metadata is required for map update")
+		if reflect.TypeOf(value).Kind() == reflect.Map {
+			data = value.(map[string]any)
+			if query.model == nil {
+				return &Result{Error: fmt.Errorf("model metadata is required for map update")}, fmt.Errorf("model metadata is required for map update")
+			}
+			m = query.model
+		} else {
+			m, err = model.GetModel(value)
+			if err != nil {
+				return &Result{Error: err}, fmt.Errorf("failed to get model: %w", err)
+			}
+
+			if m.HasBeforeUpdate {
+				if h, ok := value.(model.BeforeUpdater); ok {
+					if err := h.BeforeUpdate(); err != nil {
+						return &Result{Error: err}, fmt.Errorf("BeforeUpdate hook failed: %w", err)
+					}
+				}
+			}
+
+			cols, vals := getModelValues(m, value, true)
+			data = make(map[string]any)
+			for i, col := range cols {
+				data[col] = vals[i]
+			}
 		}
-		m = q.model
-	} else {
-		m, err = model.GetModel(value)
+
+		query.builder.SetTable(m.TableName)
+		sqlStr, args := query.builder.BuildUpdate(data)
+
+		start := time.Now()
+		res, err := query.executor.ExecContext(ctx, sqlStr, args...)
+		query.logSQL(sqlStr, time.Since(start), args...)
 		if err != nil {
-			return 0, fmt.Errorf("failed to get model: %w", err)
+			return &Result{Error: err}, query.handleError(fmt.Errorf("Update execution failed: %w", err))
 		}
 
-		if m.HasBeforeUpdate {
-			if h, ok := value.(model.BeforeUpdater); ok {
-				if err := h.BeforeUpdate(); err != nil {
-					return 0, fmt.Errorf("BeforeUpdate hook failed: %w", err)
+		rows, err := res.RowsAffected()
+		if err != nil {
+			return &Result{Error: err}, query.handleError(fmt.Errorf("failed to get rows affected: %w", err))
+		}
+
+		if reflect.TypeOf(value).Kind() != reflect.Map && m != nil && m.HasAfterUpdate {
+			if h, ok := value.(model.AfterUpdater); ok {
+				if err := h.AfterUpdate(); err != nil {
+					return &Result{RowsAffected: rows, Error: err}, query.handleError(fmt.Errorf("AfterUpdate hook failed: %w", err))
 				}
 			}
 		}
 
-		cols, vals := getModelValues(m, value, true)
-		data = make(map[string]any)
-		for i, col := range cols {
-			data[col] = vals[i]
-		}
+		query.handleError(nil)
+		return &Result{RowsAffected: rows}, nil
 	}
 
-	q.builder.SetTable(m.TableName)
-	sqlStr, args := q.builder.BuildUpdate(data)
-
-	start := time.Now()
-	res, err := q.executor.ExecContext(q.ctx, sqlStr, args...)
-	q.logSQL(sqlStr, time.Since(start), args...)
+	res, err := q.executeWithMiddleware(final)
 	if err != nil {
-		return 0, q.handleError(fmt.Errorf("Update execution failed: %w", err))
+		return 0, err
 	}
-
-	rows, err := res.RowsAffected()
-	if err != nil {
-		return 0, q.handleError(fmt.Errorf("failed to get rows affected: %w", err))
-	}
-
-	if reflect.TypeOf(value).Kind() != reflect.Map && m != nil && m.HasAfterUpdate {
-		if h, ok := value.(model.AfterUpdater); ok {
-			if err := h.AfterUpdate(); err != nil {
-				return 0, q.handleError(fmt.Errorf("AfterUpdate hook failed: %w", err))
-			}
-		}
-	}
-
-	q.handleError(nil)
-	return rows, nil
+	return res.RowsAffected, nil
 }
 
 // Delete deletes the records matching the query.
@@ -951,60 +1134,68 @@ func (q *Query) Delete(value ...any) (int64, error) {
 		return 0, q.err
 	}
 
-	var m *model.Model
-	var err error
+	final := func(ctx context.Context, query *Query) (*Result, error) {
+		var m *model.Model
+		var err error
 
-	if len(value) > 0 {
-		m, err = model.GetModel(value[0])
-		if err != nil {
-			return 0, fmt.Errorf("failed to get model: %w", err)
+		if len(value) > 0 {
+			m, err = model.GetModel(value[0])
+			if err != nil {
+				return &Result{Error: err}, fmt.Errorf("failed to get model: %w", err)
+			}
+
+			if m.HasBeforeDelete {
+				if h, ok := value[0].(model.BeforeDeleter); ok {
+					if err := h.BeforeDelete(); err != nil {
+						return &Result{Error: err}, fmt.Errorf("BeforeDelete hook failed: %w", err)
+					}
+				}
+			}
+
+			if m.PKField != nil {
+				v := reflect.ValueOf(value[0])
+				if v.Kind() == reflect.Ptr {
+					v = v.Elem()
+				}
+				pkVal := v.Field(m.PKField.Index).Interface()
+				query.builder.Where(query.db.dialect.Quote(m.PKField.Column)+" = ?", pkVal)
+			}
+		} else if query.model != nil {
+			m = query.model
+		} else {
+			return &Result{Error: fmt.Errorf("model metadata is required for delete")}, fmt.Errorf("model metadata is required for delete")
 		}
 
-		if m.HasBeforeDelete {
-			if h, ok := value[0].(model.BeforeDeleter); ok {
-				if err := h.BeforeDelete(); err != nil {
-					return 0, fmt.Errorf("BeforeDelete hook failed: %w", err)
+		query.builder.SetTable(m.TableName)
+		sqlStr, args := query.builder.BuildDelete()
+
+		start := time.Now()
+		res, err := query.executor.ExecContext(ctx, sqlStr, args...)
+		query.logSQL(sqlStr, time.Since(start), args...)
+		if err != nil {
+			return &Result{Error: err}, query.handleError(fmt.Errorf("Delete execution failed: %w", err))
+		}
+
+		rows, err := res.RowsAffected()
+		if err != nil {
+			return &Result{Error: err}, query.handleError(fmt.Errorf("failed to get rows affected: %w", err))
+		}
+
+		if len(value) > 0 && m != nil && m.HasAfterDelete {
+			if h, ok := value[0].(model.AfterDeleter); ok {
+				if err := h.AfterDelete(); err != nil {
+					return &Result{RowsAffected: rows, Error: err}, query.handleError(fmt.Errorf("AfterDelete hook failed: %w", err))
 				}
 			}
 		}
 
-		if m.PKField != nil {
-			v := reflect.ValueOf(value[0])
-			if v.Kind() == reflect.Ptr {
-				v = v.Elem()
-			}
-			pkVal := v.Field(m.PKField.Index).Interface()
-			q.builder.Where(q.db.dialect.Quote(m.PKField.Column)+" = ?", pkVal)
-		}
-	} else if q.model != nil {
-		m = q.model
-	} else {
-		return 0, fmt.Errorf("model metadata is required for delete")
+		query.handleError(nil)
+		return &Result{RowsAffected: rows}, nil
 	}
 
-	q.builder.SetTable(m.TableName)
-	sqlStr, args := q.builder.BuildDelete()
-
-	start := time.Now()
-	res, err := q.executor.ExecContext(q.ctx, sqlStr, args...)
-	q.logSQL(sqlStr, time.Since(start), args...)
+	res, err := q.executeWithMiddleware(final)
 	if err != nil {
-		return 0, q.handleError(fmt.Errorf("Delete execution failed: %w", err))
+		return 0, err
 	}
-
-	rows, err := res.RowsAffected()
-	if err != nil {
-		return 0, q.handleError(fmt.Errorf("failed to get rows affected: %w", err))
-	}
-
-	if len(value) > 0 && m != nil && m.HasAfterDelete {
-		if h, ok := value[0].(model.AfterDeleter); ok {
-			if err := h.AfterDelete(); err != nil {
-				return 0, q.handleError(fmt.Errorf("AfterDelete hook failed: %w", err))
-			}
-		}
-	}
-
-	q.handleError(nil)
-	return rows, nil
+	return res.RowsAffected, nil
 }
