@@ -9,7 +9,7 @@ import (
 )
 
 type ComplexUser struct {
-	ID   int64  `jorm:"pk auto"`
+	ID   int64  `jorm:"pk;auto"`
 	Name string `jorm:"column:name"`
 	Age  int    `jorm:"column:age"`
 }

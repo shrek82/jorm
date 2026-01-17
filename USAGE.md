@@ -10,7 +10,7 @@ package models
 import "time"
 
 type User struct {
-    ID        int64     `jorm:"pk auto"`
+    ID        int64     `jorm:"pk;auto"`
     Name      string    `jorm:"size:100 notnull"`
     Email     string    `jorm:"size:100 unique"`
     Age       int       `jorm:"default:0"`
@@ -19,7 +19,7 @@ type User struct {
 }
 
 type Order struct {
-    ID        int64     `jorm:"pk auto"`
+    ID        int64     `jorm:"pk;auto"`
     UserID    int64     `jorm:"fk:User.ID"`
     Amount    float64   `jorm:"notnull"`
     Status    string    `jorm:"size:20 default:'pending'"`
@@ -354,7 +354,7 @@ tx.Commit()
 
 ```go
 type User struct {
-    ID        int64     `jorm:"pk auto"`
+    ID        int64     `jorm:"pk;auto"`
     Name      string    `jorm:"size:100"`
     CreatedAt time.Time
     UpdatedAt time.Time
@@ -619,7 +619,7 @@ import (
 )
 
 type User struct {
-    ID        int64     `jorm:"pk auto"`
+    ID        int64     `jorm:"pk;auto"`
     Name      string    `jorm:"size:100 notnull"`
     Email     string    `jorm:"size:100 unique"`
     Age       int       `jorm:"default:0"`

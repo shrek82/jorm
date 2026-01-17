@@ -35,7 +35,7 @@ import (
 )
 
 type User struct {
-    ID        int64     `jorm:"pk auto"`
+    ID        int64     `jorm:"pk;auto"`
     Name      string    `jorm:"size:100 notnull"`
     Email     string    `jorm:"size:100 unique"`
     CreatedAt time.Time `jorm:"auto_time"`

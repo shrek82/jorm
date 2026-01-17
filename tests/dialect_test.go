@@ -9,7 +9,7 @@ import (
 )
 
 type DialectTestUser struct {
-	ID       int64  `jorm:"pk auto"`
+	ID       int64  `jorm:"pk;auto"`
 	Name     string `jorm:"size:100 notnull"`
 	Age      int    `jorm:"default:18"`
 	IsActive bool   `jorm:"default:true"`

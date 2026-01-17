@@ -10,7 +10,7 @@ import (
 
 // HookUser supports hooks
 type HookUser struct {
-	ID    int64  `jorm:"pk auto"`
+	ID    int64  `jorm:"pk;auto"`
 	Name  string `jorm:"size:100"`
 	Score int
 
@@ -41,7 +41,7 @@ type BaseInfo struct {
 }
 
 type Product struct {
-	ID       int64  `jorm:"pk auto"`
+	ID       int64  `jorm:"pk;auto"`
 	Name     string `jorm:"size:100"`
 	BaseInfo        // Embedded
 	Price    float64

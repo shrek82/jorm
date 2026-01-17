@@ -9,7 +9,7 @@ import (
 )
 
 type PreloadUser struct {
-	ID        int64           `jorm:"pk auto"`
+	ID        int64           `jorm:"pk;auto"`
 	Name      string          `jorm:"size:100"`
 	Email     string          `jorm:"size:100 unique"`
 	Age       int             `jorm:"default:0"`
@@ -21,7 +21,7 @@ type PreloadUser struct {
 }
 
 type PreloadOrder struct {
-	ID        int64            `jorm:"pk auto"`
+	ID        int64            `jorm:"pk;auto"`
 	UserID    int64            `jorm:"fk:PreloadUser.ID"`
 	Amount    float64          `jorm:"notnull"`
 	Status    string           `jorm:"size:20 default:'pending'"`
@@ -32,7 +32,7 @@ type PreloadOrder struct {
 }
 
 type PreloadProduct struct {
-	ID        int64     `jorm:"pk auto"`
+	ID        int64     `jorm:"pk;auto"`
 	Name      string    `jorm:"size:100 notnull"`
 	Price     float64   `jorm:"notnull"`
 	CreatedAt time.Time `jorm:"auto_time"`
@@ -40,7 +40,7 @@ type PreloadProduct struct {
 }
 
 type PreloadProfile struct {
-	ID        int64     `jorm:"pk auto"`
+	ID        int64     `jorm:"pk;auto"`
 	UserID    int64     `jorm:"fk:PreloadUser.ID unique"`
 	Bio       string    `jorm:"size:500"`
 	CreatedAt time.Time `jorm:"auto_time"`
@@ -48,7 +48,7 @@ type PreloadProfile struct {
 }
 
 type PreloadRole struct {
-	ID        int64     `jorm:"pk auto"`
+	ID        int64     `jorm:"pk;auto"`
 	Name      string    `jorm:"size:50 unique"`
 	CreatedAt time.Time `jorm:"auto_time"`
 	UpdatedAt time.Time `jorm:"auto_update"`

@@ -9,12 +9,12 @@ import (
 )
 
 type MigrationUser struct {
-	ID   int64  `jorm:"pk auto"`
+	ID   int64  `jorm:"pk;auto"`
 	Name string `jorm:"column:name"`
 }
 
 type MigrationUserV2 struct {
-	ID    int64  `jorm:"pk auto"`
+	ID    int64  `jorm:"pk;auto"`
 	Name  string `jorm:"column:name"`
 	Email string `jorm:"column:email"`
 }

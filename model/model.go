@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"reflect"
 	"sync"
+	"time"
 	"unicode"
 )
 
@@ -188,6 +189,10 @@ func (m *Model) parseFields(typ reflect.Type, baseIndex []int) error {
 		}
 		field.Accessor = m.createAccessor(field.NestedIdx)
 
+		if err := validateField(field); err != nil {
+			return err
+		}
+
 		m.Fields = append(m.Fields, field)
 		m.FieldMap[columnName] = field
 
@@ -256,4 +261,33 @@ func camelToSnake(s string) string {
 		}
 	}
 	return string(res)
+}
+
+func validateField(f *Field) error {
+	// Check AutoTime/AutoUpdate
+	if f.AutoTime || f.AutoUpdate {
+		t := f.Type
+		if t.Kind() == reflect.Ptr {
+			t = t.Elem()
+		}
+		if t != reflect.TypeOf(time.Time{}) {
+			return fmt.Errorf("field %s has auto_time/auto_update tag but type is %s (must be time.Time)", f.Name, f.Type)
+		}
+	}
+
+	// Check IsAuto (Auto Increment)
+	if f.IsAuto {
+		t := f.Type
+		if t.Kind() == reflect.Ptr {
+			t = t.Elem()
+		}
+		switch t.Kind() {
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+			reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+			// OK
+		default:
+			return fmt.Errorf("field %s has auto tag but type is %s (must be integer)", f.Name, f.Type)
+		}
+	}
+	return nil
 }

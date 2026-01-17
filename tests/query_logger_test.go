@@ -25,7 +25,7 @@ func TestQueryStructuredLogging(t *testing.T) {
 	db.SetLogger(l)
 
 	type LogUser struct {
-		ID   int64 `jorm:"pk auto"`
+		ID   int64 `jorm:"pk;auto"`
 		Name string
 	}
 	db.AutoMigrate(&LogUser{})

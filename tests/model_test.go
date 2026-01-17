@@ -2,12 +2,13 @@ package tests
 
 import (
 	"testing"
+	"time"
 
 	"github.com/shrek82/jorm/model"
 )
 
 type TestUser struct {
-	ID        int64  `jorm:"pk auto column:id"`
+	ID        int64  `jorm:"pk;auto column:id"`
 	UserName  string `jorm:"column:user_name size:100"`
 	Email     string `jorm:"unique"`
 	Age       int
@@ -101,4 +102,59 @@ func TestModelCache(t *testing.T) {
 	if m1 != m2 {
 		t.Errorf("Model metadata should be cached and return same pointer")
 	}
+}
+
+func TestModelValidation(t *testing.T) {
+	t.Run("InvalidAutoTime", func(t *testing.T) {
+		type InvalidAutoTime struct {
+			CreatedAt string `jorm:"auto_time"`
+		}
+		_, err := model.GetModel(&InvalidAutoTime{})
+		if err == nil {
+			t.Error("Expected error for string field with auto_time, got nil")
+		}
+	})
+
+	t.Run("InvalidAutoUpdate", func(t *testing.T) {
+		type InvalidAutoUpdate struct {
+			UpdatedAt int64 `jorm:"auto_update"`
+		}
+		_, err := model.GetModel(&InvalidAutoUpdate{})
+		if err == nil {
+			t.Error("Expected error for int64 field with auto_update, got nil")
+		}
+	})
+
+	t.Run("InvalidAuto", func(t *testing.T) {
+		type InvalidAuto struct {
+			ID string `jorm:"auto"`
+		}
+		_, err := model.GetModel(&InvalidAuto{})
+		if err == nil {
+			t.Error("Expected error for string field with auto, got nil")
+		}
+	})
+
+	t.Run("InvalidAutoFloat", func(t *testing.T) {
+		type InvalidAutoFloat struct {
+			ID float64 `jorm:"auto"`
+		}
+		_, err := model.GetModel(&InvalidAutoFloat{})
+		if err == nil {
+			t.Error("Expected error for float64 field with auto, got nil")
+		}
+	})
+
+	t.Run("ValidTypes", func(t *testing.T) {
+		type ValidModel struct {
+			ID        int64      `jorm:"auto"`
+			IDPtr     *int       `jorm:"auto"`
+			CreatedAt time.Time  `jorm:"auto_time"`
+			UpdatedAt *time.Time `jorm:"auto_update"`
+		}
+		_, err := model.GetModel(&ValidModel{})
+		if err != nil {
+			t.Errorf("Expected valid model to pass validation, got error: %v", err)
+		}
+	})
 }

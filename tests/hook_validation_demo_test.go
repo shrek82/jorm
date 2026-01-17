@@ -10,7 +10,7 @@ import (
 
 // UserWithHook demonstrates how to integrate validation with hooks.
 type UserWithHook struct {
-	ID    int64  `jorm:"pk auto"`
+	ID    int64  `jorm:"pk;auto"`
 	Name  string `jorm:"size:50"`
 	Email string `jorm:"size:100"`
 	Age   int

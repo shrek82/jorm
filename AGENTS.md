@@ -143,7 +143,7 @@ Use predefined error variables from `core/errors.go`:
 
 ### Model Tags
 Use `jorm` tags for field configuration:
-- `pk auto` for primary keys
+- `pk;auto` for primary keys
 - `size:100` for field length
 - `unique`, `notnull` for constraints
 - `fk:Table.Field` for foreign keys
