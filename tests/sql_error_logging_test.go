@@ -34,15 +34,17 @@ func TestSQLErrorLogging(t *testing.T) {
 
 	// Check logs
 	output := buf.String()
-	if !strings.Contains(output, "[JORM-ERROR]") {
-		t.Errorf("Expected [JORM-ERROR] in logs, got: %s", output)
+	// Prefix format check: [JORM] Date ... | ERROR |
+	if !strings.Contains(output, "[JORM]") || !strings.Contains(output, "| ERROR |") {
+		t.Errorf("Expected [JORM] ... | ERROR | prefix, got: %s", output)
 	}
+
 	if !strings.Contains(output, "no such table: non_existent_table") {
 		t.Errorf("Expected error message in logs, got: %s", output)
 	}
 	// Verify exact format with SQL and repeated error
 	// Note: The error message includes "raw sql execution failed: " prefix because it's wrapped in query.go
-	expectedPart := "| SQL: SELECT * FROM non_existent_table | Args: [] |  SQL execution error: raw sql execution failed: no such table: non_existent_table"
+	expectedPart := "SQL: SELECT * FROM non_existent_table | args: [] |  SQL execution error: raw sql execution failed: no such table: non_existent_table"
 	if !strings.Contains(output, expectedPart) {
 		t.Errorf("Expected log format containing '%s', got: %s", expectedPart, output)
 	}

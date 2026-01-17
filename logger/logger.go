@@ -149,7 +149,7 @@ func (l *stdLogger) SQL(sql string, duration time.Duration, args ...any) {
 		if l.format == FormatJSON {
 			l.emit("SQL", "", []any{"sql", sql, "duration", duration.String(), "args", args})
 		} else {
-			l.emit("SQL", "[%v] %s | args: %v", []any{duration, sql, args})
+			l.emit("SQL", "%v | %s | args: %v", []any{duration, sql, args})
 		}
 	}
 }
@@ -222,9 +222,9 @@ func (l *stdLogger) emit(level string, fmtStr string, args []any) {
 
 		fieldStr := ""
 		if len(l.fields) > 0 {
-			fieldStr = fmt.Sprintf(" fields: %v", l.fields)
+			fieldStr = fmt.Sprintf(" | fields: %v", l.fields)
 		}
-		logLine := fmt.Sprintf("[JORM-%s] %s  %s%s\n", displayLevel, now.Format("2006-01-02 15:04:05"), msg, fieldStr)
+		logLine := fmt.Sprintf("[JORM] %s | %s |  %s%s\n", now.Format("2006/01/02 - 15:04:05"), displayLevel, msg, fieldStr)
 		for _, w := range writers {
 			// Don't use color for non-terminal outputs if possible, but for simplicity we keep it here
 			// A better implementation would check if w is a terminal

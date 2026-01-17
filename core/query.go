@@ -577,7 +577,7 @@ func (q *Query) handleError(err error) error {
 		q.db.reportError(err)
 		if q.db.logger != nil && !errors.Is(err, ErrRecordNotFound) {
 			if q.LastSQL != "" {
-				q.db.logger.Error("SQL execution error: %v | SQL: %s | Args: %v |  SQL execution error: %v", err, q.LastSQL, q.LastArgs, err)
+				q.db.logger.Error("SQL: %s | args: %v |  SQL execution error: %v", q.LastSQL, q.LastArgs, err)
 			} else {
 				q.db.logger.Error("SQL execution error: %v", err)
 			}
