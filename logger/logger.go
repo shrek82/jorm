@@ -174,13 +174,18 @@ func (l *stdLogger) emit(level string, fmtStr string, args []any) {
 		return
 	}
 
+	displayLevel := level
+	if level == "SQL" {
+		displayLevel = "DEBUG"
+	}
+
 	if l.format == FormatJSON {
 		data := make(map[string]any)
 		for k, v := range l.fields {
 			data[k] = v
 		}
 		data["time"] = now.Format(time.RFC3339)
-		data["level"] = level
+		data["level"] = displayLevel
 		if fmtStr != "" {
 			if len(args) > 0 {
 				data["msg"] = fmt.Sprintf(fmtStr, args...)
@@ -219,7 +224,7 @@ func (l *stdLogger) emit(level string, fmtStr string, args []any) {
 		if len(l.fields) > 0 {
 			fieldStr = fmt.Sprintf(" fields: %v", l.fields)
 		}
-		logLine := fmt.Sprintf("[JORM] %s %s: %s%s\n", now.Format("2006-01-02 15:04:05"), level, msg, fieldStr)
+		logLine := fmt.Sprintf("[JORM-%s] %s  %s%s\n", displayLevel, now.Format("2006-01-02 15:04:05"), msg, fieldStr)
 		for _, w := range writers {
 			// Don't use color for non-terminal outputs if possible, but for simplicity we keep it here
 			// A better implementation would check if w is a terminal
