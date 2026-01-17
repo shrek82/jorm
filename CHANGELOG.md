@@ -5,7 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] - 2026-01-17 12:15
+## [v1.0.0-alpha.13] - 2026-01-17 12:45
+
+### 新增 (Added)
+- **jorm-gen 新特性**: 新增对外键标签 (`fk`) 的支持，自动从数据库元数据中提取外键关系并生成对应标签。
+
+### 变更 (Changed)
+- **缓存策略调整**: 更新 `Cache()` 方法行为，无参数时默认使用中间件配置的 `DefaultTTL`（若未配置则为 24 小时），仅 `Cache(-1)` 表示永久缓存。
+- **jorm-gen 改进**: 生成的模型结构体字段现在自动包含 `json` 标签，且位于 `jorm` 标签之前，默认使用蛇形命名（snake_case）。
+- **jorm-gen 改进**: 优化 `created_at` 和 `updated_at` 字段的标签生成逻辑，使用更清晰的 `switch` 语句。
+- **文档更新**: 更新 `docs/03-模型定义.md`，推荐使用分号 `;` 作为标签分隔符以符合社区最佳实践。
+
+## [v1.0.0-alpha.13] - 2026-01-17 12:15
 
 ### 新增 (Added)
 - 新增文档 `docs/20-其他中间件与开发指南.md`，详细介绍 `SlowLog`, `CircuitBreaker`, `Tracing` 等中间件，并提供自定义中间件开发教程。

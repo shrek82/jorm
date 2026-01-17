@@ -36,7 +36,7 @@ import (
 // {{.StructName}} 代表数据库表 {{.RawTableName}} 的模型
 type {{.StructName}} struct {
 {{- range .Fields}}
-	{{.Name}} {{.Type}} ` + "`" + `jorm:"{{.Tag}}"` + "`" + ` {{if .Comment}}// {{.Comment}}{{end}}
+	{{.Name}} {{.Type}} ` + "`" + `json:"{{.Column}}" jorm:"{{.Tag}}"` + "`" + ` {{if .Comment}}// {{.Comment}}{{end}}
 {{- end}}
 }
 
@@ -48,18 +48,19 @@ func (m *{{.StructName}}) TableName() string {
 
 // Field 代表模型中的一个字段
 type Field struct {
-	Name      string // Go 结构体字段名
-	Column    string // 数据库列名
-	Type      string // Go 类型
-	DBType    string // 原始数据库类型
-	Tag       string // jorm 标签
-	Comment   string // 数据库字段注释
-	IsPK      bool
-	IsAuto    bool
-	IsNotNull bool
-	IsUnique  bool
-	Default   string
-	Size      int
+	Name       string // Go 结构体字段名
+	Column     string // 数据库列名
+	Type       string // Go 类型
+	DBType     string // 原始数据库类型
+	Tag        string // jorm 标签
+	Comment    string // 数据库字段注释
+	IsPK       bool
+	IsAuto     bool
+	IsNotNull  bool
+	IsUnique   bool
+	Default    string
+	Size       int
+	ForeignKey string // 外键关联 (Format: Table.Column)
 }
 
 // ModelData 代表生成模板所需的数据
@@ -193,6 +194,12 @@ func fetchAllTables(db *sql.DB, driver string) ([]string, error) {
 func fetchTableInfo(db *sql.DB, driver, table string) ([]Field, error) {
 	var fields []Field
 
+	// 获取外键信息
+	fkMap, err := fetchForeignKeys(db, driver, table)
+	if err != nil {
+		log.Printf("Warning: fetchForeignKeys failed for table %s: %v", table, err)
+	}
+
 	switch driver {
 	case "sqlite3":
 		rows, err := db.Query(fmt.Sprintf("PRAGMA table_info(%s)", table))
@@ -215,13 +222,14 @@ func fetchTableInfo(db *sql.DB, driver, table string) ([]Field, error) {
 			}
 
 			f := Field{
-				Name:      snakeToCamel(name, true),
-				Column:    name,
-				Type:      mapType(dataType),
-				DBType:    dataType,
-				IsPK:      pk == 1,
-				IsNotNull: notnull == 1,
-				Default:   dfltValue.String,
+				Name:       snakeToCamel(name, true),
+				Column:     name,
+				Type:       mapType(dataType),
+				DBType:     dataType,
+				IsPK:       pk == 1,
+				IsNotNull:  notnull == 1,
+				Default:    dfltValue.String,
+				ForeignKey: fkMap[name],
 			}
 
 			if f.IsPK && strings.Contains(strings.ToUpper(dataType), "INT") {
@@ -260,15 +268,16 @@ func fetchTableInfo(db *sql.DB, driver, table string) ([]Field, error) {
 			}
 
 			f := Field{
-				Name:      snakeToCamel(field, true),
-				Column:    field,
-				Type:      mapType(typ),
-				DBType:    typ,
-				Comment:   comment,
-				IsPK:      key == "PRI",
-				IsNotNull: null == "NO",
-				IsUnique:  key == "UNI",
-				Default:   defaultVal.String,
+				Name:       snakeToCamel(field, true),
+				Column:     field,
+				Type:       mapType(typ),
+				DBType:     typ,
+				Comment:    comment,
+				IsPK:       key == "PRI",
+				IsNotNull:  null == "NO",
+				IsUnique:   key == "UNI",
+				Default:    defaultVal.String,
+				ForeignKey: fkMap[field],
 			}
 
 			// 提取自增
@@ -320,15 +329,16 @@ func fetchTableInfo(db *sql.DB, driver, table string) ([]Field, error) {
 			}
 
 			f := Field{
-				Name:      snakeToCamel(name, true),
-				Column:    name,
-				Type:      mapType(dataType),
-				DBType:    dataType,
-				Comment:   comment.String,
-				IsPK:      isPK == "YES",
-				IsNotNull: isNullable == "NO",
-				Default:   columnDefault.String,
-				Size:      int(maxLength.Int64),
+				Name:       snakeToCamel(name, true),
+				Column:     name,
+				Type:       mapType(dataType),
+				DBType:     dataType,
+				Comment:    comment.String,
+				IsPK:       isPK == "YES",
+				IsNotNull:  isNullable == "NO",
+				Default:    columnDefault.String,
+				Size:       int(maxLength.Int64),
+				ForeignKey: fkMap[name],
 			}
 
 			if f.IsPK && strings.Contains(strings.ToLower(f.Default), "nextval") {
@@ -345,6 +355,13 @@ func fetchTableInfo(db *sql.DB, driver, table string) ([]Field, error) {
 // mapType 将数据库类型映射为 Go 类型
 func mapType(dbType string) string {
 	dbTypeUpper := strings.ToUpper(dbType)
+	dbTypeUpper = strings.TrimSpace(dbTypeUpper)
+
+	// 特殊处理 TINYINT(1) 为 bool
+	if dbTypeUpper == "TINYINT(1)" {
+		return "bool"
+	}
+
 	// 移除括号及其内容，以便匹配基础类型，例如 "TINYINT(1)" -> "TINYINT"
 	if idx := strings.Index(dbTypeUpper, "("); idx != -1 {
 		dbTypeUpper = dbTypeUpper[:idx]
@@ -408,6 +425,9 @@ func generateTag(f Field) string {
 	if f.Default != "" {
 		tags = append(tags, fmt.Sprintf("default:%s", f.Default))
 	}
+	if f.ForeignKey != "" {
+		tags = append(tags, fmt.Sprintf("fk:%s", f.ForeignKey))
+	}
 	// 只对字符串或字节数组类型生成 size 标签
 	if f.Size > 0 && (f.Type == "string" || f.Type == "[]byte") {
 		tags = append(tags, fmt.Sprintf("size:%d", f.Size))
@@ -415,9 +435,10 @@ func generateTag(f Field) string {
 
 	// 针对时间字段的特殊处理
 	colLower := strings.ToLower(f.Column)
-	if colLower == "created_at" {
+	switch colLower {
+	case "created_at":
 		tags = append(tags, "auto_time")
-	} else if colLower == "updated_at" {
+	case "updated_at":
 		tags = append(tags, "auto_update")
 	}
 
@@ -482,4 +503,81 @@ func snakeToCamel(s string, upperFirst bool) string {
 		}
 	}
 	return strings.Join(parts, "")
+}
+
+// fetchForeignKeys 获取表的外键信息
+// 返回: map[columnName]TargetTable.TargetColumn (Struct 格式)
+func fetchForeignKeys(db *sql.DB, driver, table string) (map[string]string, error) {
+	fkMap := make(map[string]string)
+
+	switch driver {
+	case "mysql":
+		rows, err := db.Query(`
+            SELECT 
+                COLUMN_NAME, 
+                REFERENCED_TABLE_NAME, 
+                REFERENCED_COLUMN_NAME 
+            FROM information_schema.KEY_COLUMN_USAGE 
+            WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND REFERENCED_TABLE_NAME IS NOT NULL
+        `, table)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var col, refTable, refCol string
+			if err := rows.Scan(&col, &refTable, &refCol); err != nil {
+				return nil, err
+			}
+			fkMap[col] = fmt.Sprintf("%s.%s", snakeToCamel(refTable, true), snakeToCamel(refCol, true))
+		}
+
+	case "postgres":
+		rows, err := db.Query(`
+            SELECT
+                kcu.column_name,
+                ccu.table_name AS foreign_table_name,
+                ccu.column_name AS foreign_column_name
+            FROM information_schema.key_column_usage AS kcu
+            JOIN information_schema.constraint_column_usage AS ccu
+                ON kcu.constraint_name = ccu.constraint_name
+                AND kcu.table_schema = ccu.table_schema
+            WHERE kcu.table_name = $1 AND kcu.table_schema = 'public'
+        `, table)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var col, refTable, refCol string
+			if err := rows.Scan(&col, &refTable, &refCol); err != nil {
+				return nil, err
+			}
+			fkMap[col] = fmt.Sprintf("%s.%s", snakeToCamel(refTable, true), snakeToCamel(refCol, true))
+		}
+
+	case "sqlite3":
+		rows, err := db.Query(fmt.Sprintf("PRAGMA foreign_key_list(%s)", table))
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var id, seq int
+			var refTable, from, to, onUpdate, onDelete, match string
+			// id, seq, table, from, to, on_update, on_delete, match
+			// SQLite PRAGMA return values can be tricky to scan if types mismatch or nulls
+			// We use sql.NullString for potentially nullable fields
+			var nsTo sql.NullString
+			if err := rows.Scan(&id, &seq, &refTable, &from, &nsTo, &onUpdate, &onDelete, &match); err != nil {
+				return nil, err
+			}
+			to = nsTo.String
+			if to == "" {
+				to = "ID" // Default to ID if not specified (PK)
+			}
+			fkMap[from] = fmt.Sprintf("%s.%s", snakeToCamel(refTable, true), snakeToCamel(to, true))
+		}
+	}
+	return fkMap, nil
 }
