@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **jorm-gen 改进**: 生成的模型结构体字段现在自动包含 `json` 标签，且位于 `jorm` 标签之前，默认使用蛇形命名（snake_case）。
 - **jorm-gen 改进**: 优化 `created_at` 和 `updated_at` 字段的标签生成逻辑，使用更清晰的 `switch` 语句。
 - **文档更新**: 更新 `docs/03-模型定义.md`，推荐使用分号 `;` 作为标签分隔符以符合社区最佳实践。
+- **模型验证增强**: 强化 `AutoMigrate` 时的模型合法性检查。现在若字段类型与标签不匹配（如 `string` 类型配置 `auto_time`，或非整数类型配置 `auto`），将直接报错中止，不再忽略隐患。
 
 ## [v1.0.0-alpha.13] - 2026-01-17 12:15
 
