@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"reflect"
 	"strings"
@@ -574,6 +575,13 @@ func (r *startResult) RowsAffected() (int64, error) { return r.rowsAffected, nil
 func (q *Query) handleError(err error) error {
 	if err != nil && q.db != nil {
 		q.db.reportError(err)
+		if q.db.logger != nil && !errors.Is(err, ErrRecordNotFound) {
+			if q.LastSQL != "" {
+				q.db.logger.Error("SQL execution error: %v | SQL: %s | Args: %v |  SQL execution error: %v", err, q.LastSQL, q.LastArgs, err)
+			} else {
+				q.db.logger.Error("SQL execution error: %v", err)
+			}
+		}
 	}
 	return err
 }
