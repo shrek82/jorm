@@ -232,8 +232,10 @@ func (l *stdLogger) parseLevel(level string) LogLevel {
 	switch strings.ToUpper(level) {
 	case "DEBUG":
 		return LevelDebug
-	case "INFO", "SQL":
+	case "INFO":
 		return LevelInfo
+	case "SQL":
+		return LevelDebug
 	case "WARN":
 		return LevelWarn
 	case "ERROR":
