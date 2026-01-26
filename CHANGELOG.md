@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - 2026-01-26 10:30
+
+### 新增 (Added)
+- 新增 `Paginate` 查询方法：支持便捷的分页查询，自动计算 `ItemTotal` (总条数), `TotalPage` (总页数), `Page` (当前页), `PerPage` (每页数量)。
+- 新增 `Pagination` 结构体：用于封装分页查询的元数据。
+- 核心增强：为 `Builder` 接口和 `sqlBuilder` 实现 `Clone` 方法，支持深拷贝 SQL 构建器，确保 `Paginate` 中 `Count` 和 `Find` 查询互不影响。
+
 ## [v1.0.0-alpha.13] - 2026-01-17 12:45
 
 ### 新增 (Added)

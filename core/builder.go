@@ -45,6 +45,8 @@ type Builder interface {
 	BuildUpdate(data map[string]any) (string, []any)
 	// BuildDelete generates the final DELETE statement and its arguments.
 	BuildDelete() (string, []any)
+	// Clone creates a deep copy of the builder.
+	Clone() Builder
 }
 
 // sqlBuilder is the default implementation of the Builder interface.
@@ -103,7 +105,52 @@ func (b *sqlBuilder) Reset(d dialect.Dialect) {
 	b.sb.Reset()
 }
 
-// SetTable sets the table name for the current SQL statement.
+// Clone creates a deep copy of the builder.
+func (b *sqlBuilder) Clone() Builder {
+	nb := builderPool.Get().(*sqlBuilder)
+	nb.Reset(b.dialect)
+
+	nb.table = b.table
+	nb.alias = b.alias
+
+	if len(b.selectCols) > 0 {
+		nb.selectCols = append(nb.selectCols, b.selectCols...)
+	}
+
+	nb.whereExpr = b.whereExpr
+	if len(b.whereArgs) > 0 {
+		nb.whereArgs = append(nb.whereArgs, b.whereArgs...)
+	}
+
+	if len(b.joins) > 0 {
+		nb.joins = append(nb.joins, b.joins...)
+	}
+	if len(b.joinArgs) > 0 {
+		nb.joinArgs = append(nb.joinArgs, b.joinArgs...)
+	}
+
+	if len(b.groupBy) > 0 {
+		nb.groupBy = append(nb.groupBy, b.groupBy...)
+	}
+
+	nb.havingExpr = b.havingExpr
+	if len(b.havingArgs) > 0 {
+		nb.havingArgs = append(nb.havingArgs, b.havingArgs...)
+	}
+
+	if len(b.orderBy) > 0 {
+		nb.orderBy = append(nb.orderBy, b.orderBy...)
+	}
+
+	nb.limitSet = b.limitSet
+	nb.limit = b.limit
+	nb.offsetSet = b.offsetSet
+	nb.offset = b.offset
+
+	return nb
+}
+
+// SetTable sets the table name. for the current SQL statement.
 func (b *sqlBuilder) SetTable(name string) Builder {
 	b.table = name
 	return b

@@ -485,6 +485,80 @@ func (q *Query) Sum(column string) (float64, error) {
 	return 0, fmt.Errorf("invalid sum result type: %T", res.Data)
 }
 
+// Clone creates a new Query instance with a deep copy of the builder and other fields.
+func (q *Query) Clone() *Query {
+	newQ := &Query{
+		db:       q.db,
+		executor: q.executor,
+		builder:  q.builder.Clone(),
+		ctx:      q.ctx,
+		model:    q.model,
+		err:      q.err,
+		rawSQL:   q.rawSQL,
+		logger:   q.logger,
+	}
+
+	if len(q.rawArgs) > 0 {
+		newQ.rawArgs = make([]any, len(q.rawArgs))
+		copy(newQ.rawArgs, q.rawArgs)
+	}
+
+	if len(q.preloads) > 0 {
+		newQ.preloads = make([]*preloadConfig, len(q.preloads))
+		copy(newQ.preloads, q.preloads)
+	}
+
+	return newQ
+}
+
+// Pagination represents the result of a paginated query.
+type Pagination struct {
+	ItemTotal int64 `json:"item_total"` // Total number of items
+	TotalPage int64 `json:"total_page"` // Total number of pages
+	Page      int64 `json:"page"`       // Current page number
+	PerPage   int64 `json:"per_page"`   // Number of items per page
+}
+
+// Paginate executes the query with pagination and returns the result and pagination info.
+// dest must be a pointer to a slice.
+func (q *Query) Paginate(page, perPage int64, dest any) (*Pagination, error) {
+	if page < 1 {
+		page = 1
+	}
+	if perPage < 1 {
+		perPage = 10
+	}
+
+	// Clone the query to count total items without affecting the original query
+	countQ := q.Clone()
+	total, err := countQ.Count()
+	if err != nil {
+		return nil, err
+	}
+
+	// Calculate total pages
+	totalPage := int64(0)
+	if total > 0 {
+		totalPage = (total + perPage - 1) / perPage
+	}
+
+	// Apply limit and offset to the original query
+	offset := (page - 1) * perPage
+	q.Limit(int(perPage)).Offset(int(offset))
+
+	// Execute the query
+	if err := q.Find(dest); err != nil {
+		return nil, err
+	}
+
+	return &Pagination{
+		ItemTotal: total,
+		TotalPage: totalPage,
+		Page:      page,
+		PerPage:   perPage,
+	}, nil
+}
+
 // Scan executes a raw query and scans the result into dest.
 // dest can be a pointer to a struct or a pointer to a slice.
 func (q *Query) Scan(dest any) error {
