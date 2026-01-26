@@ -645,6 +645,13 @@ func (q *Query) queryRows(sqlStr string, args []any, dest any) error {
 
 	sliceValue := destValue.Elem()
 	itemType := sliceValue.Type().Elem()
+	isPtr := itemType.Kind() == reflect.Ptr
+	var elemType reflect.Type
+	if isPtr {
+		elemType = itemType.Elem()
+	} else {
+		elemType = itemType
+	}
 
 	columns, err := rows.Columns()
 	if err != nil {
@@ -655,11 +662,10 @@ func (q *Query) queryRows(sqlStr string, args []any, dest any) error {
 	var plan *scanPlan
 
 	for rows.Next() {
-		item := reflect.New(itemType)
-		itemInterface := item.Interface()
+		val := reflect.New(elemType)
 
 		if plan == nil {
-			m, err = model.GetModel(itemInterface)
+			m, err = model.GetModel(val.Interface())
 			if err != nil {
 				return q.handleError(fmt.Errorf("failed to get model metadata: %w", err))
 			}
@@ -667,20 +673,24 @@ func (q *Query) queryRows(sqlStr string, args []any, dest any) error {
 		}
 
 		// Pass reflect.Value directly to avoid repeated reflect.ValueOf
-		if err := q.scanRowWithPlan(rows, item.Elem(), plan); err != nil {
+		if err := q.scanRowWithPlan(rows, val.Elem(), plan); err != nil {
 			return q.handleError(fmt.Errorf("row scan failed: %w", err))
 		}
 
 		// AfterFind hook
 		if m.HasAfterFind {
-			if h, ok := itemInterface.(model.AfterFinder); ok {
+			if h, ok := val.Interface().(model.AfterFinder); ok {
 				if err := h.AfterFind(); err != nil {
 					return fmt.Errorf("AfterFind hook failed: %w", err)
 				}
 			}
 		}
 
-		sliceValue.Set(reflect.Append(sliceValue, item.Elem()))
+		if isPtr {
+			sliceValue.Set(reflect.Append(sliceValue, val))
+		} else {
+			sliceValue.Set(reflect.Append(sliceValue, val.Elem()))
+		}
 	}
 
 	if err := rows.Err(); err != nil {
