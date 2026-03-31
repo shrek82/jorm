@@ -106,7 +106,7 @@ func (m *CircuitBreakerMiddleware) recordSuccess() {
 		m.failures = 0
 		m.halfOpenPassed = false
 	} else if m.state == StateClosed {
-		// Optional: reset failures on success? 
+		// Optional: reset failures on success?
 		// Usually we reset only on consecutive successes or after some time.
 		// For simple breaker, let's reset on any success in Closed state to track CONSECUTIVE failures.
 		m.failures = 0

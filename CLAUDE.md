@@ -19,6 +19,7 @@ go test ./model/
 
 # Run a single test (requires database DSN)
 MYSQL_TEST_DSN="user:pass@tcp(127.0.0.1:3306)/db?parseTime=true" go test -run TestMySQLIntegration ./tests/
+POSTGRES_TEST_DSN="postgres://user:pass@localhost/db?sslmode=disable" go test -run TestPostgresIntegration ./tests/
 
 # Run benchmarks
 go test -bench=. ./tests/
@@ -112,4 +113,30 @@ page, err := db.Model(&User{}).Paginate(pageNum, pageSize, &users)
 **Preload relations:**
 ```go
 db.Model(&User{}).Preload("Posts").Find(&users)
+```
+
+**Model Definition:**
+```go
+type User struct {
+    ID        int64     `jorm:"pk;auto"`
+    Name      string    `jorm:"size:100 notnull"`
+    Email     string    `jorm:"size:100 unique"`
+    CreatedAt time.Time `jorm:"auto_time"`  // auto-fill on insert
+    UpdatedAt time.Time `jorm:"auto_update"` // auto-fill on insert and update
+}
+```
+
+**Custom Table Name:**
+```go
+func (u *User) TableName() string {
+    return "sys_user"  // override default snake_case table name
+}
+```
+
+**Hooks:**
+```go
+func (u *User) BeforeInsert() error {
+    // validation or default values before insert
+    return nil
+}
 ```
